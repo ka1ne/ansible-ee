@@ -1,0 +1,22 @@
+---
+all:
+  children:
+    windows:
+      hosts:
+        # Prod hosts managed via CMDB — populate or use dynamic inventory
+        # prod-win-01.internal.bank:
+      vars:
+        ansible_connection: winrm
+        ansible_winrm_transport: credssp
+        ansible_winrm_server_cert_validation: ignore
+        ansible_port: 5986
+
+    linux:
+      hosts:
+        # prod-linux-01.internal.bank:
+      vars:
+        ansible_connection: ssh
+        ansible_port: 22
+
+  vars:
+    env: prod

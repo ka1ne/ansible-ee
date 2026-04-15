@@ -1,0 +1,9 @@
+# .trivyignore
+# List CVE IDs to suppress in Trivy scans.
+# Each entry MUST have a comment explaining why it's accepted + a review date.
+#
+# Format:
+#   CVE-YYYY-NNNNN  # reason | accepted by | review by YYYY-MM-DD
+#
+# Example:
+# CVE-2024-12345  # false positive in base image, no exploit path | eugene | review by 2026-07-01

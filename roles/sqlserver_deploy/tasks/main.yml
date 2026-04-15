@@ -1,0 +1,28 @@
+---
+# roles/sqlserver_deploy/tasks/main.yml
+# Stub — replace with your existing SQL Server role logic
+
+- name: Validate SQL Server config input
+  ansible.builtin.assert:
+    that:
+      - sqlserver_config is defined
+      - sqlserver_config.databases is defined
+      - sqlserver_config.databases | length > 0
+    fail_msg: "sqlserver_config.databases is required"
+
+- name: Ensure SQL Server service is running
+  ansible.windows.win_service:
+    name: "MSSQL${{ sqlserver_config.instance_name | default('MSSQLSERVER') }}"
+    state: started
+    start_mode: auto
+
+- name: Configure databases
+  ansible.windows.win_shell: |
+    $db = "{{ item.name }}"
+    $model = "{{ item.recovery_model | default('FULL') }}"
+    # TODO: Replace with your org's SQL provisioning logic
+    # e.g. invoke sqlcmd, dbatools, or custom scripts
+    Write-Output "Configuring database: $db with recovery model: $model"
+  loop: "{{ sqlserver_config.databases }}"
+  register: db_config
+  no_log: true

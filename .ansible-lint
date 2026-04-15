@@ -1,0 +1,23 @@
+---
+profile: production
+
+exclude_paths:
+  - .github/
+  - context/
+  - examples/
+
+skip_list:
+  - yaml[line-length]  # handled by yamllint
+
+warn_list:
+  - role-name[path]
+
+enable_list:
+  - no-changed-when
+  - no-handler
+  - no-jinja-when
+  - name[casing]
+
+use_default_rules: true
+
+strict: true

@@ -1,0 +1,29 @@
+---
+collections:
+  # Microsoft Windows automation
+  - name: ansible.windows
+    version: "2.5.0"
+    source: https://galaxy-mirror.internal/
+
+  - name: community.windows
+    version: "2.3.0"
+    source: https://galaxy-mirror.internal/
+
+  # General Linux/POSIX
+  - name: ansible.posix
+    version: "1.5.4"
+    source: https://galaxy-mirror.internal/
+
+  # General utilities
+  - name: ansible.utils
+    version: "4.1.0"
+    source: https://galaxy-mirror.internal/
+
+  - name: community.general
+    version: "9.5.0"
+    source: https://galaxy-mirror.internal/
+
+  # Internal collection: uncomment and replace when ready
+  # - name: yourorg.app_migration
+  #   version: "2.1.0"
+  #   source: https://galaxy-mirror.internal/
