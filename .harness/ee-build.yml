@@ -68,16 +68,15 @@ pipeline:
                   type: BuildAndPushDockerRegistry
                   spec:
                     connectorRef: container_registry
-                    repo: registry.internal.bank/ansible-ee
+                    repo: ghcr.io/ka1ne/ansible-ee
                     tags:
                       - <+pipeline.sequenceId>
                       - <+codebase.commitSha>
                       - latest
                     dockerfile: context/Containerfile
                     context: context/
-                    buildArgs:
-                      GALAXY_MIRROR_URL: https://galaxy-mirror.internal/
-                      GALAXY_MIRROR_TOKEN: <+secrets.getValue("galaxy_mirror_token")>
+                    # buildArgs: uncomment and set GALAXY_MIRROR_URL + GALAXY_MIRROR_TOKEN
+                    # to route collection installs through a private Automation Hub.
 
               # -- Scan image --
               - step:
@@ -86,7 +85,7 @@ pipeline:
                   type: Run
                   spec:
                     connectorRef: container_registry
-                    image: aquasec/trivy:latest
+                    image: aquasec/trivy:0.58.2
                     shell: Bash
                     command: |
                       trivy image \
@@ -94,7 +93,7 @@ pipeline:
                         --exit-code 1 \
                         --format table \
                         --ignorefile .trivyignore \
-                        registry.internal.bank/ansible-ee:<+pipeline.sequenceId>
+                        ghcr.io/ka1ne/ansible-ee:<+pipeline.sequenceId>
 
               # -- SBOM --
               - step:
@@ -103,10 +102,10 @@ pipeline:
                   type: Run
                   spec:
                     connectorRef: container_registry
-                    image: anchore/syft:latest
+                    image: anchore/syft:1.19.0
                     shell: Bash
                     command: |
-                      syft registry.internal.bank/ansible-ee:<+pipeline.sequenceId> \
+                      syft ghcr.io/ka1ne/ansible-ee:<+pipeline.sequenceId> \
                         -o spdx-json \
                         > /harness/sbom.spdx.json
                     outputVariables:
@@ -121,7 +120,7 @@ pipeline:
                   type: Run
                   spec:
                     connectorRef: container_registry
-                    image: registry.internal.bank/ansible-ee:<+pipeline.sequenceId>
+                    image: ghcr.io/ka1ne/ansible-ee:<+pipeline.sequenceId>
                     shell: Bash
                     command: |
                       pip install bandit pip-audit --quiet --break-system-packages
@@ -129,10 +128,37 @@ pipeline:
                       ./scripts/scan-collections.sh \
                         /usr/share/ansible/collections/ansible_collections \
                         /tmp/scan-results
-                    # Allow soft failure — review results, don't hard-gate on first run
-                  failureStrategies:
-                    - onFailure:
-                        errors:
-                          - AllErrors
-                        action:
-                          type: Ignore
+
+    # ── Stage 2: Register EE in AWX ──────────────────────────────────────────
+    - stage:
+        name: Register EE in AWX
+        identifier: awx_sync
+        type: CI
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: ocp_cluster
+              namespace: platform-ci
+              automountServiceAccountToken: true
+          execution:
+            steps:
+              - step:
+                  name: Sync EE to AWX
+                  identifier: awx_sync_ee
+                  type: Run
+                  spec:
+                    # Uses the built EE itself — Python + curl available
+                    connectorRef: container_registry
+                    image: ghcr.io/ka1ne/ansible-ee:<+pipeline.sequenceId>
+                    shell: Bash
+                    command: |
+                      chmod +x awx/register-ee.sh
+                      bash awx/register-ee.sh
+                    envVariables:
+                      AWX_HOST: <+variable.awx_host>
+                      AWX_TOKEN: <+secrets.getValue("awx_token")>
+                      EE_IMAGE: ghcr.io/ka1ne/ansible-ee:<+pipeline.sequenceId>
+                      EE_NAME: Ansible EE
+                      REGISTRY_CRED: Internal Registry

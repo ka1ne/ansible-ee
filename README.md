@@ -36,27 +36,59 @@ Containerised Ansible control node for application deployment and migration.
     └── manifest-example.yml    # Sample manifest (React app output)
 ```
 
-## Quick Start
+## Getting Started
+
+### Prerequisites
+
+| Tool | Min version |
+|------|-------------|
+| Python | 3.11 |
+| Podman | 4.x |
+| Git | any |
+
+### First-time setup
 
 ```bash
-# Build EE image
-make build
+cp .env.example .env
+$EDITOR .env          # set IMAGE_NAME at minimum; add mirror vars for air-gapped CI
 
-# Lint
-make lint
-
-# Scan image + collections
-make scan
-
-# Generate SBOM
-make sbom
-
-# Dry run against dev
-make test-dry-run
-
-# Push to registry
-make push
+make bootstrap        # verify prereqs + create .venv
+make test-bootstrap   # confirm all tools importable
 ```
+
+### Common tasks
+
+```bash
+make build              # Build the EE image
+make lint               # ansible-lint + yamllint
+make test-syntax        # Playbook syntax check
+make scan               # Trivy + collection security scan
+make test-dry-run       # --check --diff against dev inventory
+make push               # Tag and push to registry
+
+# Molecule — smoke test (Windows Server 2019 via Podman/KVM)
+make test-molecule-init
+
+# Molecule — full SQL Server role test (requires a live host)
+MOLECULE_TEST_HOST=<host> ANSIBLE_WINRM_USER=<u> ANSIBLE_WINRM_PASSWORD=<p> \
+  make test-molecule-mssql
+
+make help               # List all targets
+```
+
+## AWX (local dev)
+
+AWX runs on k3s via the AWX Operator (`awx/awx-instance.yml`).
+
+```bash
+make awx-operator   # install operator
+make awx-install    # deploy AWX (~5 min)
+make awx-status     # get pod status + admin password
+# create an API token: Settings → Users → admin → Tokens → Add → set AWX_TOKEN=<token> in .env
+make awx-sync-ee    # register/update the EE definition
+```
+
+The Harness `ee-build` pipeline runs `awx/register-ee.sh` automatically after every successful build.
 
 ## Pipeline Usage
 
@@ -68,7 +100,7 @@ to `ansible-playbook`. See `examples/manifest-example.yml` for the expected form
 ansible-playbook playbooks/site.yml \
   -i inventory/dev.yml \
   -e @manifest.yml \
-  --limit "dev-win-01.internal.bank"
+  --limit "dev-win-01.ka1ne.dev"
 ```
 
 ## Security

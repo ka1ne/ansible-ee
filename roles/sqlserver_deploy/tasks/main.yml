@@ -1,28 +1,47 @@
 ---
 # roles/sqlserver_deploy/tasks/main.yml
-# Stub — replace with your existing SQL Server role logic
 
-- name: Validate SQL Server config input
+- name: Validate required variables
   ansible.builtin.assert:
     that:
-      - sqlserver_config is defined
-      - sqlserver_config.databases is defined
-      - sqlserver_config.databases | length > 0
-    fail_msg: "sqlserver_config.databases is required"
+      - sqlserver_instance is defined and sqlserver_instance | length > 0
+    fail_msg: "sqlserver_instance must be defined"
 
-- name: Ensure SQL Server service is running
-  ansible.windows.win_service:
-    name: "MSSQL${{ sqlserver_config.instance_name | default('MSSQLSERVER') }}"
-    state: started
-    start_mode: auto
+- name: Derive internal facts
+  ansible.builtin.set_fact:
+    _sql_svc_name: >-
+      {{ 'MSSQLSERVER' if sqlserver_instance == 'MSSQLSERVER'
+         else 'MSSQL$' + sqlserver_instance }}
+    _sql_agent_svc: >-
+      {{ 'SQLSERVERAGENT' if sqlserver_instance == 'MSSQLSERVER'
+         else 'SQLAgent$' + sqlserver_instance }}
+    _sql_connect: >-
+      {{ ansible_hostname if sqlserver_instance == 'MSSQLSERVER'
+         else ansible_hostname + '\\' + sqlserver_instance }}
 
-- name: Configure databases
-  ansible.windows.win_shell: |
-    $db = "{{ item.name }}"
-    $model = "{{ item.recovery_model | default('FULL') }}"
-    # TODO: Replace with your org's SQL provisioning logic
-    # e.g. invoke sqlcmd, dbatools, or custom scripts
-    Write-Output "Configuring database: $db with recovery model: $model"
-  loop: "{{ sqlserver_config.databases }}"
-  register: db_config
-  no_log: true
+- name: Install prerequisites (SqlServerDsc, dbatools)
+  ansible.builtin.include_tasks: prerequisites.yml
+  when: sqlserver_install_prerequisites | bool
+
+- name: Manage SQL Server services
+  ansible.builtin.include_tasks: service.yml
+
+- name: Apply server-level configuration
+  ansible.builtin.include_tasks: configure.yml
+  when: sqlserver_server_config | length > 0
+
+- name: Manage databases
+  ansible.builtin.include_tasks: databases.yml
+  when: sqlserver_databases | length > 0
+
+- name: Manage logins and database users
+  ansible.builtin.include_tasks: users.yml
+  when: sqlserver_logins | length > 0 or sqlserver_db_users | length > 0
+
+- name: Run backup jobs
+  ansible.builtin.include_tasks: backup.yml
+  when: sqlserver_backup_enabled | bool and sqlserver_backup_jobs | length > 0
+
+- name: Run restore jobs
+  ansible.builtin.include_tasks: restore.yml
+  when: sqlserver_restore_jobs | length > 0

@@ -1,0 +1,68 @@
+---
+# roles/sqlserver_deploy/tasks/users.yml
+# SQL logins: SqlServerDsc SqlLogin DSC resource (idempotent).
+# DB user mapping + role membership: dbatools (New-DbaDbUser, Add-DbaDbRoleMember).
+
+- name: Manage SQL Server logins
+  ansible.windows.win_dsc:
+    resource_name: SqlLogin
+    module_version: latest
+    ServerName: "{{ ansible_hostname }}"
+    InstanceName: "{{ sqlserver_instance }}"
+    Name: "{{ item.name }}"
+    Ensure: "{{ item.state | default('Present') }}"
+    LoginType: "{{ item.login_type | default('SqlLogin') }}"
+    LoginCredential:
+      username: "{{ item.name }}"
+      password: "{{ item.password | default(omit) }}"
+    LoginPasswordExpirationEnabled: "{{ item.password_expiry | default(false) }}"
+    LoginPasswordPolicyEnforced: "{{ item.password_policy | default(false) }}"
+    LoginMustChangePassword: "{{ item.must_change | default(false) }}"
+  loop: "{{ sqlserver_logins }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.login_type | default('SqlLogin') }})"
+  no_log: true
+
+- name: Manage database users and role membership
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'Stop'
+    Import-Module dbatools -ErrorAction Stop
+
+    $sqlInstance = '{{ _sql_connect }}'
+    $database    = '{{ item.database }}'
+    $loginName   = '{{ item.login }}'
+    $userName    = '{{ item.username | default(item.login) }}'
+
+    # Create user mapping if it does not exist
+    $existing = Get-DbaDbUser -SqlInstance $sqlInstance -Database $database `
+                              -User $userName -ErrorAction SilentlyContinue
+    if (-not $existing) {
+        New-DbaDbUser -SqlInstance $sqlInstance -Database $database `
+                      -Login $loginName -Username $userName -EnableException
+        Write-Output "Created user '$userName' in '$database'"
+    } else {
+        Write-Output "User '$userName' already exists in '$database'"
+    }
+
+    # Assign roles
+    $roles = @('{{ item.roles | default([]) | join("','") }}')
+    foreach ($role in $roles) {
+        if ([string]::IsNullOrWhiteSpace($role)) { continue }
+        $member = Get-DbaDbRoleMember -SqlInstance $sqlInstance -Database $database `
+                                      -Role $role -ErrorAction SilentlyContinue |
+                  Where-Object { $_.UserName -eq $userName }
+        if (-not $member) {
+            Add-DbaDbRoleMember -SqlInstance $sqlInstance -Database $database `
+                                -Role $role -User $userName -Confirm:$false -EnableException
+            Write-Output "Granted role '$role' to '$userName'"
+        } else {
+            Write-Output "Role '$role' already granted to '$userName'"
+        }
+    }
+  loop: "{{ sqlserver_db_users }}"
+  loop_control:
+    label: "{{ item.username | default(item.login) }}@{{ item.database }}"
+  register: users_result
+  changed_when: "'Created user' in users_result.stdout or 'Granted role' in users_result.stdout"
+  no_log: true
+  when: sqlserver_db_users | length > 0

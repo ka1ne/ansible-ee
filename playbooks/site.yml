@@ -31,29 +31,9 @@
           Targets: {{ target_hosts }}
 
   roles:
-    # --- Windows Capabilities ---
-    - role: iis_deploy
-      when: "'iis' in capabilities"
-      tags: [iis]
-
     - role: sqlserver_deploy
       when: "'sqlserver' in capabilities"
       tags: [sqlserver]
-
-    - role: dotnet_migrate
-      when: "'dotnet' in capabilities"
-      tags: [dotnet]
-
-    - role: windows_baseline
-      when: "'windows_baseline' in capabilities"
-      tags: [windows_baseline]
-
-    # --- Linux Capabilities ---
-    - role: linux_baseline
-      when: "'linux_baseline' in capabilities"
-      tags: [linux_baseline]
-
-    # TODO: Add your remaining capability→role mappings here
 
   post_tasks:
     - name: Deployment summary

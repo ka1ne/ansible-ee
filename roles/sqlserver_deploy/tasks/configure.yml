@@ -1,0 +1,19 @@
+---
+# roles/sqlserver_deploy/tasks/configure.yml
+# Uses SqlServerDsc's SqlConfiguration DSC resource.
+# Each entry in sqlserver_server_config maps to a SQL Server sp_configure option.
+# RestartService is false — a manual service restart is required for static options
+# (e.g. max server memory takes effect immediately; others need restart).
+
+- name: Apply SQL Server configuration options
+  ansible.windows.win_dsc:
+    resource_name: SqlConfiguration
+    module_version: latest
+    InstanceName: "{{ sqlserver_instance }}"
+    ServerName: "{{ ansible_hostname }}"
+    OptionName: "{{ item.key }}"
+    OptionValue: "{{ item.value | int }}"
+    RestartService: false
+  loop: "{{ sqlserver_server_config | dict2items }}"
+  loop_control:
+    label: "{{ item.key }} = {{ item.value }}"

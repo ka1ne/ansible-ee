@@ -5,14 +5,14 @@ USER root
 
 # ── POC: WinRM only (NTLM/CredSSP transport) ─────────────────────────────────
 # Fast-follower: uncomment the krb5-* lines below when adding Kerberos support
-RUN microdnf install -y \
+RUN dnf install -y \
         gcc \
         python3-devel \
         openssl-devel \
         # krb5-devel \
         # krb5-libs \
         # krb5-workstation \
-    && microdnf clean all
+    && dnf clean all
 
 # Python deps — pinned for reproducibility
 COPY requirements.txt /tmp/requirements.txt

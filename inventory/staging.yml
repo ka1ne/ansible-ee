@@ -3,7 +3,7 @@ all:
   children:
     windows:
       hosts:
-        stg-win-01.internal.bank:
+        stg-win-01.ka1ne.dev:
       vars:
         ansible_connection: winrm
         ansible_winrm_transport: credssp
@@ -12,7 +12,7 @@ all:
 
     linux:
       hosts:
-        stg-linux-01.internal.bank:
+        stg-linux-01.ka1ne.dev:
       vars:
         ansible_connection: ssh
         ansible_port: 22

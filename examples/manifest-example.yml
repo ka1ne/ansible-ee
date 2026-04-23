@@ -26,7 +26,7 @@ iis_config:
   bindings:
     - protocol: https
       port: 443
-      hostname: "myapp.internal.bank"
+      hostname: "myapp.ka1ne.dev"
       cert_thumbprint: "ABC123..."
 
 sqlserver_config:
@@ -40,4 +40,4 @@ sqlserver_config:
 dotnet_config:
   version: "8.0"
   deploy_path: "C:\\inetpub\\wwwroot\\MyWebApp"
-  artifact_source: "https://nexus.internal.bank/repository/releases/myapp/1.2.3/myapp-1.2.3.zip"
+  artifact_source: "https://artifacts.ka1ne.dev/releases/myapp/1.2.3/myapp-1.2.3.zip"

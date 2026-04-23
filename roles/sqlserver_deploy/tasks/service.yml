@@ -1,0 +1,16 @@
+---
+# roles/sqlserver_deploy/tasks/service.yml
+
+- name: Ensure SQL Server Database Engine service is running
+  ansible.windows.win_service:
+    name: "{{ _sql_svc_name }}"
+    state: started
+    start_mode: auto
+
+- name: Ensure SQL Server Agent service is running
+  ansible.windows.win_service:
+    name: "{{ _sql_agent_svc }}"
+    state: started
+    start_mode: auto
+  # Agent may not be installed in Express/Developer edition — best-effort
+  ignore_errors: true # noqa: ignore-errors

@@ -3,8 +3,8 @@ all:
   children:
     windows:
       hosts:
-        dev-win-01.internal.bank:
-        dev-win-02.internal.bank:
+        dev-win-01.ka1ne.dev:
+        dev-win-02.ka1ne.dev:
       vars:
         ansible_connection: winrm
         ansible_winrm_transport: credssp
@@ -13,8 +13,8 @@ all:
 
     linux:
       hosts:
-        dev-linux-01.internal.bank:
-        dev-linux-02.internal.bank:
+        dev-linux-01.ka1ne.dev:
+        dev-linux-02.ka1ne.dev:
       vars:
         ansible_connection: ssh
         ansible_port: 22

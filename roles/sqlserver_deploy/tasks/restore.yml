@@ -1,0 +1,36 @@
+---
+# roles/sqlserver_deploy/tasks/restore.yml
+# Uses dbatools Restore-DbaDatabase.
+# backup_file supports wildcards and paths — dbatools resolves the latest automatically.
+# with_replace: true required when restoring over an existing database.
+# no_recovery: true leaves DB in restoring state (for log shipping tail-log).
+
+- name: Execute database restore jobs
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'Stop'
+    Import-Module dbatools -ErrorAction Stop
+
+    $params = @{
+        SqlInstance     = '{{ _sql_connect }}'
+        Path            = '{{ item.backup_file }}'
+        DatabaseName    = '{{ item.database }}'
+        WithReplace     = [bool]{{ item.with_replace | default(false) | bool | string | lower | replace('true','$true') | replace('false','$false') }}
+        NoRecovery      = [bool]{{ item.no_recovery | default(false) | bool | string | lower | replace('true','$true') | replace('false','$false') }}
+        EnableException = $true
+    }
+    {% if item.data_path is defined %}
+    $params['DestinationDataDirectory'] = '{{ item.data_path }}'
+    {% endif %}
+    {% if item.log_path is defined %}
+    $params['DestinationLogDirectory'] = '{{ item.log_path }}'
+    {% endif %}
+
+    $result = Restore-DbaDatabase @params
+    if (-not $result) { throw "Restore returned no result for '{{ item.database }}'" }
+    Write-Output "Restore OK: $($result.Database) — status $($result.RestoreComplete)"
+  loop: "{{ sqlserver_restore_jobs }}"
+  loop_control:
+    label: "{{ item.database }} <- {{ item.backup_file }}"
+  register: restore_results
+  changed_when: true
+  no_log: false

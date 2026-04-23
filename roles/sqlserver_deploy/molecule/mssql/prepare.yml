@@ -1,0 +1,74 @@
+---
+# molecule/mssql/prepare.yml
+# One-time bootstrap: ensures PS modules are present and staging dirs exist.
+# Skipped on subsequent converge/verify runs (modules idempotently check presence).
+
+- name: Prepare Windows SQL Server 2019 test host
+  hosts: all
+  gather_facts: true
+
+  tasks:
+    - name: Verify SQL Server service exists before testing
+      ansible.windows.win_service_info:
+        name: MSSQLSERVER
+      register: svc_check
+      failed_when: svc_check.services | length == 0
+
+    - name: Ensure NuGet provider is available
+      ansible.windows.win_shell: |
+        if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Confirm:$false
+            Write-Output "INSTALLED"
+        } else {
+            Write-Output "PRESENT"
+        }
+      register: nuget_install
+      changed_when: "'INSTALLED' in nuget_install.stdout"
+
+    - name: Configure PSGallery as trusted (or internal mirror)
+      ansible.windows.win_shell: |
+        $repo = '{{ lookup("env", "MOLECULE_PSREPOSITORY_URL") | default("PSGallery", true) }}'
+        if ($repo -ne 'PSGallery') {
+            $existing = Get-PSRepository | Where-Object { $_.SourceLocation -eq $repo }
+            if (-not $existing) {
+                Register-PSRepository -Name InternalGallery -SourceLocation $repo `
+                    -InstallationPolicy Trusted -Verbose
+                Write-Output "REGISTERED InternalGallery"
+                return
+            }
+        }
+        if ((Get-PSRepository -Name PSGallery).InstallationPolicy -ne 'Trusted') {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Write-Output "TRUSTED"
+        } else {
+            Write-Output "ALREADY_TRUSTED"
+        }
+      changed_when: "'TRUSTED' in psrepo_setup.stdout or 'REGISTERED' in psrepo_setup.stdout"
+      register: psrepo_setup
+
+    - name: Ensure SqlServerDsc PS module is installed
+      community.windows.win_psmodule:
+        name: SqlServerDsc
+        state: present
+
+    - name: Ensure dbatools PS module is installed
+      community.windows.win_psmodule:
+        name: dbatools
+        state: present
+
+    - name: Create backup staging directory
+      ansible.windows.win_file:
+        path: 'C:\SQLBackup'
+        state: directory
+
+    - name: Create restore staging directory
+      ansible.windows.win_file:
+        path: 'C:\SQLRestore'
+        state: directory
+
+    - name: Display host info
+      ansible.builtin.debug:
+        msg:
+          - "Host     : {{ ansible_hostname }}"
+          - "OS       : {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "PS ver   : {{ ansible_powershell_version | default('unknown') }}"

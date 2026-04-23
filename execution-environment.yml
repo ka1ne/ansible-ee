@@ -3,24 +3,38 @@ version: 3
 
 images:
   base_image:
-    name: registry.internal.bank/ee-minimal-rhel9:latest
+    # Public default (UBI9 full — has Python3 + dnf pre-installed, no auth required).
+    # Override with EE_BASE_IMAGE for an internal mirror equivalent.
+    name: ${EE_BASE_IMAGE:-registry.access.redhat.com/ubi9:latest}
 
 dependencies:
   galaxy: requirements.yml
   python: requirements.txt
   system: bindep.txt
+  ansible_core:
+    package_pip: ansible-core>=2.15,<2.21
+  ansible_runner:
+    package_pip: ansible-runner>=2.3,<3
 
 options:
-  package_manager_path: /usr/bin/microdnf
+  # ubi9 full uses dnf; internal RHEL9 minimal image uses microdnf —
+  # override via EE_BASE_IMAGE + adjust this if swapping to the internal base
+  package_manager_path: /usr/bin/dnf
+
+additional_build_files:
+  - src: ansible.cfg
+    dest: config
 
 additional_build_steps:
   prepend_galaxy:
-    # Force all Galaxy pulls through internal mirror — no public egress
-    - ENV ANSIBLE_GALAXY_SERVER_LIST=internal_hub
-    - ENV ANSIBLE_GALAXY_SERVER_INTERNAL_HUB_URL=${GALAXY_MIRROR_URL}
-    - ENV ANSIBLE_GALAXY_SERVER_INTERNAL_HUB_TOKEN=${GALAXY_MIRROR_TOKEN}
+    # Accept mirror URL + token as optional build args.
+    # When set, writes a galaxy config to /etc/ansible/ansible.cfg so
+    # ansible-galaxy pulls collections from the internal mirror instead of
+    # public Galaxy during the build.  Leave both unset for public Galaxy.
+    - ARG GALAXY_MIRROR_URL
+    - ARG GALAXY_MIRROR_TOKEN
+    - RUN test -z "$GALAXY_MIRROR_URL" || (mkdir -p /etc/ansible && printf '[galaxy]\nserver_list=private_hub\n\n[galaxy_server.private_hub]\nurl=%s\ntoken=%s\n' "$GALAXY_MIRROR_URL" "$GALAXY_MIRROR_TOKEN" > /etc/ansible/ansible.cfg)
 
   append_final:
-    - COPY ansible.cfg /etc/ansible/ansible.cfg
-    - RUN microdnf clean all && rm -rf /var/cache/yum
-    - USER 1000
+    - COPY _build/config/ansible.cfg /etc/ansible/ansible.cfg
+    - RUN dnf clean all && rm -rf /var/cache/dnf /var/cache/yum

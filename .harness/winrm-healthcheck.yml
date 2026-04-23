@@ -39,7 +39,7 @@ pipeline:
                   type: Run
                   spec:
                     connectorRef: container_registry  # TODO: replace with real connector ID
-                    image: registry.internal.bank/ansible-ee:dev
+                    image: ghcr.io/ka1ne/ansible-ee:dev
                     shell: Sh
                     command: |
                       python3 - <<'EOF'
@@ -89,7 +89,7 @@ pipeline:
                       EOF
                     envVariables:
                       # Comma-separated list of dev Windows hostnames to probe
-                      WINRM_TARGETS: "dev-win-01.internal.bank,dev-win-02.internal.bank"
+                      WINRM_TARGETS: "dev-win-01.ka1ne.dev,dev-win-02.ka1ne.dev"
                       ANSIBLE_WINRM_USER: <+secrets.getValue("winrm_user")>
                       ANSIBLE_WINRM_PASSWORD: <+secrets.getValue("winrm_password")>
                     resources:

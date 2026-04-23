@@ -6,7 +6,7 @@
 #
 # Replace before use:
 #   ocp_cluster        — KubernetesDirect connector ID for your OCP cluster
-#   container_registry — Docker registry connector ID for registry.internal.bank
+#   container_registry — Docker registry connector ID for your container registry
 #
 # Secrets expected (create in Harness project secrets):
 #   winrm_user         — Windows service account username
@@ -79,7 +79,7 @@ pipeline:
                   type: Run
                   spec:
                     connectorRef: container_registry  # TODO: replace
-                    image: registry.internal.bank/ansible-ee:dev
+                    image: ghcr.io/ka1ne/ansible-ee:dev
                     shell: Sh
                     command: |
                       python3 /runner/scripts/validate-manifest.py /shared/manifest.yml \
@@ -132,7 +132,7 @@ pipeline:
                   timeout: 30m
                   spec:
                     connectorRef: container_registry  # TODO: replace
-                    image: registry.internal.bank/ansible-ee:dev
+                    image: ghcr.io/ka1ne/ansible-ee:dev
                     shell: Sh
                     command: |
                       # Write manifest into container (shared volume not available cross-stage;
