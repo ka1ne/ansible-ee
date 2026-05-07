@@ -2,8 +2,6 @@ FROM registry.access.redhat.com/ubi9/python-311:latest
 
 USER root
 
-RUN microdnf install -y gcc python3-devel openssl-devel && microdnf clean all
-
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt && \
     pip install --no-cache-dir "ansible-core==2.17.*"

@@ -30,10 +30,10 @@ Enable-PSRemoting -Force -SkipNetworkProfileCheck | Out-Null
 winrm quickconfig -q
 
 Write-Host "[2/5] Configuring NTLM auth on HTTP listener..." -ForegroundColor Cyan
-Set-Item WSMan:\localhost\Service\Auth\Basic   -Value $false
-Set-Item WSMan:\localhost\Service\Auth\NTLM    -Value $true
-Set-Item WSMan:\localhost\Service\Auth\CredSSP -Value $false
-Set-Item WSMan:\localhost\Service\Auth\Kerberos -Value $false
+Set-Item WSMan:\localhost\Service\Auth\Basic     -Value $false
+Set-Item WSMan:\localhost\Service\Auth\Negotiate -Value $true   # covers NTLM
+Set-Item WSMan:\localhost\Service\Auth\CredSSP   -Value $false
+Set-Item WSMan:\localhost\Service\Auth\Kerberos  -Value $false
 
 # Allow unencrypted is required for HTTP transport (PoC only)
 Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value $true

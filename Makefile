@@ -2,9 +2,10 @@
 
 IMAGE     ?= ansible-ee:poc
 NAMESPACE ?= default
+CR        ?= docker
 
 build: ## Build the EE image locally
-	podman build -t $(IMAGE) .
+	$(CR) build -t $(IMAGE) .
 
 poc-local: ## Run the PoC locally (requires poc/.env and WinRM set up on Windows host)
 	bash poc/scripts/run-poc.sh

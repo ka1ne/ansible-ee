@@ -35,7 +35,7 @@
       ansible.builtin.debug:
         msg: >-
           Connected to {{ ansible_hostname }}
-          running {{ ansible_os_name }} {{ ansible_os_version }}
+          running {{ ansible_os_name }} {{ ansible_distribution_version }}
 
     # ── Stage 2: SQL Server port reachability via the Windows host ────────────
 
