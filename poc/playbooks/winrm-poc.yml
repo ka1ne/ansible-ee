@@ -1,0 +1,95 @@
+---
+# PoC playbook: WinRM connectivity + SQL Server 2022 reachability
+#
+# What this proves:
+#   1. Ansible EE container can reach the Windows host via WinRM/NTLM
+#   2. The Windows host can reach the MSSQL 2022 container on port 1433
+#   3. Basic SQL Server login works (via sqlcmd if installed, skipped otherwise)
+#
+# Run via: make poc-run  OR  see poc/scripts/run-poc.sh
+
+- name: WinRM + SQL Server 2022 PoC
+  hosts: windows
+  gather_facts: false
+
+  vars:
+    # Override MSSQL_HOST env var if needed (defaults to container name "mssql")
+    mssql_host: "{{ lookup('env', 'MSSQL_HOST') | default('mssql', true) }}"
+    mssql_port: 1433
+    mssql_sa_password: "{{ lookup('env', 'MSSQL_SA_PASSWORD') }}"
+
+  tasks:
+    # ── Stage 1: WinRM connectivity ───────────────────────────────────────────
+
+    - name: "[1/5] WinRM ping — proves transport is working"
+      ansible.windows.win_ping:
+
+    - name: "[2/5] Collect minimal host facts"
+      ansible.windows.setup:
+        gather_subset:
+          - "!all"
+          - min
+      register: host_facts
+
+    - name: "[2/5] Display OS info"
+      ansible.builtin.debug:
+        msg: >-
+          Connected to {{ ansible_hostname }}
+          running {{ ansible_os_name }} {{ ansible_os_version }}
+
+    # ── Stage 2: SQL Server port reachability via the Windows host ────────────
+
+    - name: "[3/5] Test TCP to SQL Server 2022 container (port {{ mssql_port }})"
+      ansible.windows.win_shell: |
+        $result = Test-NetConnection -ComputerName {{ mssql_host }} -Port {{ mssql_port }} -InformationLevel Quiet -WarningAction SilentlyContinue
+        if ($result) {
+            Write-Output "PASS: {{ mssql_host }}:{{ mssql_port }} is reachable"
+        } else {
+            Write-Error "FAIL: {{ mssql_host }}:{{ mssql_port }} is NOT reachable"
+            exit 1
+        }
+      register: sql_port_check
+
+    - name: "[3/5] Display port check result"
+      ansible.builtin.debug:
+        var: sql_port_check.stdout_lines
+
+    # ── Stage 3: SQL Server login (requires sqlcmd on the Windows host) ───────
+
+    - name: "[4/5] Check if sqlcmd is available on the Windows host"
+      ansible.windows.win_command: where.exe sqlcmd
+      register: sqlcmd_present
+      failed_when: false
+      changed_when: false
+
+    - name: "[4/5] Run sqlcmd smoke test (SELECT @@VERSION)"
+      ansible.windows.win_shell: |
+        sqlcmd -S {{ mssql_host }},{{ mssql_port }} `
+               -U sa `
+               -P "{{ mssql_sa_password }}" `
+               -Q "SELECT @@VERSION AS [SQL Server Version]" `
+               -l 15
+      register: sqlcmd_result
+      no_log: true
+      when: sqlcmd_present.rc == 0
+
+    - name: "[4/5] Display sqlcmd result"
+      ansible.builtin.debug:
+        var: sqlcmd_result.stdout_lines
+      when: sqlcmd_present.rc == 0
+
+    - name: "[4/5] sqlcmd not found on host — skipping SQL login test"
+      ansible.builtin.debug:
+        msg: "sqlcmd not in PATH on the Windows host. Port reachability already confirmed above."
+      when: sqlcmd_present.rc != 0
+
+    # ── Stage 4: Summary ──────────────────────────────────────────────────────
+
+    - name: "[5/5] PoC summary"
+      ansible.builtin.debug:
+        msg:
+          - "WinRM transport : NTLM over HTTP:5985"
+          - "Target host     : {{ inventory_hostname }} ({{ ansible_host }})"
+          - "SQL Server      : {{ mssql_host }}:{{ mssql_port }}"
+          - "SQL reachable   : {{ 'YES' if sql_port_check.rc == 0 else 'NO' }}"
+          - "SQL login test  : {{ 'PASS' if (sqlcmd_present.rc == 0 and sqlcmd_result.rc == 0) else ('SKIPPED (no sqlcmd)' if sqlcmd_present.rc != 0 else 'FAIL') }}"

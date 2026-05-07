@@ -17,6 +17,7 @@ ansible_facts/
 *.key
 vault-password.txt
 .vault_pass
+poc/.env
 
 # Python
 __pycache__/

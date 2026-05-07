@@ -1,5 +1,0 @@
----
-# group_vars/windows.yml
-# Credentials injected via env vars at runtime — never committed here
-ansible_user: "{{ lookup('env', 'ANSIBLE_WINRM_USER') }}"
-ansible_password: "{{ lookup('env', 'ANSIBLE_WINRM_PASSWORD') }}"

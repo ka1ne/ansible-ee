@@ -1,6 +1,0 @@
----
-# roles/sqlserver_deploy/defaults/main.yml
-sqlserver_config:
-  instance_name: "MSSQLSERVER"
-  databases: []
-  backup_schedule: "daily"

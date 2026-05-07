@@ -1,13 +1,6 @@
-# WinRM connectivity — POC (NTLM/CredSSP transport)
+# WinRM transport (NTLM)
 pywinrm==0.4.3
-requests-credssp==2.0.0
 requests-ntlm==1.3.0
 
-# Kerberos auth — fast-follower, enable when targeting domain-joined hosts
-# Requires system packages: krb5-devel, krb5-libs (see Dockerfile)
-# pykerberos==1.2.4
-# requests-kerberos==0.14.0
-
-# Utility
+# Ansible filter dependency
 jmespath==1.0.1
-xmltodict==0.13.0

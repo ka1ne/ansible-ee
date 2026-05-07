@@ -1,81 +1,98 @@
-# Ansible Execution Environment
+# Ansible EE — Tekton PoC
 
-Containerised Ansible control node for application deployment and migration.
+Builds and runs an Ansible Execution Environment (EE) image through a Tekton pipeline.
+Proves the full cycle: **build EE image → push to registry → run WinRM + SQL Server probe**.
 
-## Structure
+## What it proves
 
-```
-├── execution-environment.yml   # EE build definition (ansible-builder)
-├── requirements.yml            # Galaxy collections (pinned, internal mirror)
-├── requirements.txt            # Python dependencies (pinned)
-├── bindep.txt                  # System packages
-├── ansible.cfg                 # Hardened Ansible config
-├── Makefile                    # Build/scan/test commands
-│
-├── playbooks/
-│   └── site.yml                # Main entrypoint — manifest-driven role dispatch
-│
-├── roles/                      # Internal roles (or pulled via collections)
-│
-├── inventory/
-│   ├── dev.yml
-│   ├── staging.yml
-│   └── prod.yml
-│
-├── group_vars/
-│   └── windows.yml             # WinRM connection vars (creds from env)
-│
-├── schemas/
-│   └── manifest-schema.json    # JSON Schema for manifest validation
-│
-├── scripts/
-│   ├── scan-collections.sh     # Security scan for Galaxy collection contents
-│   └── validate-manifest.py    # Manifest schema validation
-│
-└── examples/
-    └── manifest-example.yml    # Sample manifest (React app output)
+At the end of a successful PipelineRun the logs confirm:
+
+| Check | What it validates |
+|---|---|
+| WinRM ping | EE container can reach the Windows host |
+| Host facts | OS hostname + version gathered |
+| TCP 1433 | Windows host can reach SQL Server on port 1433 |
+| SQL login | `SELECT @@VERSION` via `sqlcmd` (skipped if `sqlcmd` not on host) |
+
+## Prerequisites
+
+- OpenShift cluster with **OpenShift Pipelines** (Tekton) installed
+- Windows host with WinRM enabled on port 5985 (NTLM/HTTP — PoC only)
+- SQL Server accessible on port 1433 from the Windows host
+- Container registry accessible from the cluster
+
+## One-time setup
+
+### 1. Enable WinRM on the Windows host
+
+Run as Administrator on the Windows host:
+
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope Process -Force
+.\poc\scripts\setup-winrm-local.ps1
 ```
 
-## Quick Start
+### 2. Create the credentials secret
 
 ```bash
-# Build EE image
-make build
-
-# Lint
-make lint
-
-# Scan image + collections
-make scan
-
-# Generate SBOM
-make sbom
-
-# Dry run against dev
-make test-dry-run
-
-# Push to registry
-make push
+kubectl create secret generic winrm-credentials \
+  --from-literal=host=<windows-host-ip> \
+  --from-literal=username=ansible-poc \
+  --from-literal=password=<winrm-password> \
+  --from-literal=mssql_host=<mssql-host-ip> \
+  --from-literal=mssql_sa_password=<sa-password> \
+  -n <your-namespace>
 ```
 
-## Pipeline Usage
-
-The EE image is consumed as a Container Step in Harness pipelines.
-The React manifest generator produces a YAML file which is passed as `--extra-vars`
-to `ansible-playbook`. See `examples/manifest-example.yml` for the expected format.
+### 3. Apply Tekton manifests
 
 ```bash
-ansible-playbook playbooks/site.yml \
-  -i inventory/dev.yml \
-  -e @manifest.yml \
-  --limit "dev-win-01.internal.bank"
+# Edit tekton/pipelinerun.yml — set GIT_URL and IMAGE first
+make tekton-apply NAMESPACE=<your-namespace>
 ```
 
-## Security
+## Run the pipeline
 
-- All Galaxy collections pulled from internal mirror only (no public egress)
-- Python + system deps pinned to exact versions
-- EE image scanned with Trivy, SBOM generated with Syft
-- Collection Python code scanned with Bandit + Semgrep
-- Image runs as non-root (UID 1000)
-- Credentials injected at runtime via environment variables, never baked into image
+```bash
+make tekton-run NAMESPACE=<your-namespace>
+```
+
+Watch the run:
+
+```bash
+kubectl get pipelineruns -n <your-namespace> -w
+tkn pipelinerun logs -f -n <your-namespace>
+```
+
+## Run locally (without Tekton)
+
+Requires Podman Desktop + WSL2. Copy and fill in `poc/.env.example`:
+
+```bash
+cp poc/.env.example poc/.env
+make poc-local
+```
+
+## Repo structure
+
+```
+.
+├── Dockerfile              # EE image — runtime only (no playbooks baked in)
+├── requirements.txt        # Python: pywinrm, requests-ntlm, jmespath
+├── requirements.yml        # Ansible: ansible.windows collection only
+├── ansible.cfg             # Minimal config
+├── Makefile                # build / poc-local / tekton-apply / tekton-run / clean
+├── tekton/
+│   ├── task-git-clone.yml  # Clone source repo into workspace
+│   ├── task-build-ee.yml   # Build + push EE image (buildah)
+│   ├── task-run-poc.yml    # Run winrm-poc.yml inside the EE
+│   ├── pipeline.yml        # Pipeline: clone → build → run
+│   └── pipelinerun.yml     # Sample trigger (edit GIT_URL + IMAGE before applying)
+└── poc/
+    ├── .env.example
+    ├── inventory/poc-local.yml   # WINRM_HOST from env, falls back to host.containers.internal
+    ├── playbooks/winrm-poc.yml   # 5-stage probe: ping, facts, port check, SQL login, summary
+    └── scripts/
+        ├── run-poc.sh            # Local orchestration (Podman + MSSQL + EE)
+        └── setup-winrm-local.ps1 # One-time WinRM enablement (run as Administrator)
+```
