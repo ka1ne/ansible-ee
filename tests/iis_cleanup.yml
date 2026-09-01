@@ -1,0 +1,28 @@
+---
+# Remove everything tests/iis.yml created. Safe to run repeatedly, and safe to
+# run when the test failed half way through.
+
+- name: Remove IIS test artifacts
+  hosts: windows
+  gather_facts: false
+
+  vars:
+    test_run_id: "{{ lookup('env', 'TEST_RUN_ID') | default('manual', true) }}"
+    test_site_name: "ansible-ee-test-{{ test_run_id }}"
+    test_site_root: 'C:\inetpub\wwwroot\{{ test_site_name }}'
+
+  tasks:
+    - name: Remove the test site
+      community.windows.win_iis_website:
+        name: "{{ test_site_name }}"
+        state: absent
+
+    - name: Remove the test application pool
+      community.windows.win_iis_webapppool:
+        name: "{{ test_site_name }}-pool"
+        state: absent
+
+    - name: Remove the site root
+      ansible.windows.win_file:
+        path: "{{ test_site_root }}"
+        state: absent

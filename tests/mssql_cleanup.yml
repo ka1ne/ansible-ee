@@ -1,0 +1,35 @@
+---
+# Drop the database tests/mssql.yml created. Safe to run repeatedly, and safe
+# to run when the test failed half way through.
+
+- name: Remove SQL Server test artifacts
+  hosts: windows
+  gather_facts: true
+
+  vars:
+    test_run_id: "{{ lookup('env', 'TEST_RUN_ID') | default('manual', true) }}"
+    test_database: "ansible_ee_test_{{ test_run_id }}"
+    sqlserver_instance: "{{ lookup('env', 'TEST_MSSQL_INSTANCE') | default('MSSQLSERVER', true) }}"
+
+  tasks:
+    - name: Drop the test database if it is there
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        $instance = '{{ ansible_hostname }}{{ "" if sqlserver_instance == "MSSQLSERVER" else "\\" + sqlserver_instance }}'
+        $db = '{{ test_database }}'
+        $exists = Invoke-Sqlcmd -ServerInstance $instance `
+          -Query "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE name = '$db'"
+        if ($exists) {
+            # Kick any sessions off first, or the drop blocks.
+            Invoke-Sqlcmd -ServerInstance $instance `
+              -Query "ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db];"
+            Write-Output "dropped $db"
+        } else {
+            Write-Output "absent"
+        }
+      register: mssql_drop
+      changed_when: "'dropped' in mssql_drop.stdout"
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: "{{ mssql_drop.stdout | trim }}"

@@ -1,0 +1,51 @@
+---
+# Can we reach this VM at all, and is it what we think it is?
+#
+# Run this first when adopting a new target. Every other suite assumes it passes,
+# and most "the role is broken" reports turn out to be this failing instead.
+#
+#   make test-vm HOST=10.0.0.5 SUITE=connectivity
+
+- name: Connectivity
+  hosts: windows
+  gather_facts: false
+
+  tasks:
+    - name: Reach the host over WinRM
+      ansible.windows.win_ping:
+
+    - name: Gather facts
+      ansible.windows.setup:
+        gather_subset:
+          - "!all"
+          - min
+
+    - name: Report what we connected to
+      ansible.builtin.debug:
+        msg: >-
+          {{ ansible_hostname }} — {{ ansible_os_name }}
+          {{ ansible_distribution_version }}
+          at {{ ansible_host }}:{{ ansible_port }}
+          over {{ ansible_winrm_transport }}/{{ ansible_winrm_scheme }}
+
+    - name: Confirm the target is actually Windows
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family is defined
+          - ansible_os_family == 'Windows'
+        fail_msg: >-
+          Connected, but this does not look like a Windows host
+          (os_family={{ ansible_os_family | default('unknown') }}).
+        success_msg: "Windows confirmed"
+
+    - name: Confirm we can run a command and read its output
+      ansible.windows.win_shell: Write-Output $env:COMPUTERNAME
+      register: whoami_check
+      changed_when: false
+
+    - name: Confirm the command returned something usable
+      ansible.builtin.assert:
+        that:
+          - whoami_check.stdout | trim | length > 0
+        fail_msg: "win_shell ran but produced no output — check WinRM quotas on the target"
+        success_msg: "Command execution confirmed on {{ whoami_check.stdout | trim }}"
