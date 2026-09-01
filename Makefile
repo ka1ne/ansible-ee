@@ -101,7 +101,7 @@ test-syntax: ## Syntax-check the playbooks
 # ── Local development ───────────────────────────────────────────────────────
 
 test-local: ## Run the connectivity probe locally (needs .env and a WinRM host)
-	bash dev/scripts/run-local.sh
+	bash dev/scripts/run-local.sh $(ARGS)
 
 # ── AWX ─────────────────────────────────────────────────────────────────────
 

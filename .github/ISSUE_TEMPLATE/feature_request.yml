@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest something this project should do
+labels: ["type/feature"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: |
+        What are you trying to do that this project makes hard or impossible?
+        Describe the situation rather than the solution — it often turns out
+        there is a better fix than the one that first comes to mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: How you think it could work.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part does this touch
+      multiple: true
+      options:
+        - Execution Environment
+        - AWX configuration
+        - Windows content (IIS, SQL Server)
+        - CI and release
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: |
+        Including doing nothing, or solving it outside this project. If an
+        upstream project already does this, say so — this kit deliberately
+        leans on awx-operator and infra.controller_configuration rather than
+        reimplementing them.

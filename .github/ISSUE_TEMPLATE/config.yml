@@ -1,0 +1,17 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Installing or running AWX itself
+    url: https://github.com/ansible/awx-operator
+    about: >-
+      This project does not install AWX. Problems deploying AWX belong with the
+      operator; come back here for the Execution Environment and Windows content.
+
+  - name: Setting up an AWX lab from scratch
+    url: https://github.com/kurokobo/awx-on-k3s
+    about: A well-maintained walkthrough for a local AWX on k3s.
+
+  - name: AWX configuration-as-code collection
+    url: https://github.com/redhat-cop/infra.controller_configuration
+    about: >-
+      Bugs in the dispatch role itself belong upstream. How this project uses
+      it is in scope here.

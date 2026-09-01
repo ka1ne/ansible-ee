@@ -109,6 +109,7 @@ $CONTAINER_RT run --rm \
     -e ANSIBLE_STDOUT_CALLBACK=yaml \
     -v "${REPO_ROOT}/playbooks:/runner/playbooks:ro" \
     -v "${REPO_ROOT}/inventories:/runner/inventories:ro" \
+    -v "${REPO_ROOT}/roles:/runner/roles:ro" \
     "$EE_IMAGE" \
     ansible-playbook \
         -i /runner/inventories/local/hosts.yml \

@@ -1,113 +1,134 @@
-# Ansible Execution Environment
+# ansible-ee — a Windows automation starter kit for AWX
 
-Containerised Ansible control node for application deployment and migration.
+A batteries-included starting point for automating Windows with AWX: a
+Windows-focused Ansible Execution Environment, the AWX configuration that goes
+with it, and real IIS and SQL Server content to run through it.
 
-## Structure
+The intended path is that you clone this, point it at a Windows host, and get a
+green connectivity probe within an hour — then replace the example content with
+your own.
+
+## What this is not
+
+Deploying AWX and configuring AWX are solved problems, and this project does
+not try to solve them again:
+
+| For this | Use this |
+|---|---|
+| Installing AWX on Kubernetes | [ansible/awx-operator](https://github.com/ansible/awx-operator) |
+| A local AWX lab from nothing | [kurokobo/awx-on-k3s](https://github.com/kurokobo/awx-on-k3s) |
+| Driving AWX objects from git | [redhat-cop/infra.controller_configuration](https://github.com/redhat-cop/infra.controller_configuration) |
+
+This repository is the layer on top: the image AWX runs your Windows jobs in,
+the configuration that registers it, and content worth running. It uses all
+three of the projects above rather than reimplementing them.
+
+## How it fits together
 
 ```
-├── execution-environment.yml   # EE build definition (ansible-builder)
-├── requirements.yml            # Galaxy collections (pinned, internal mirror)
-├── requirements.txt            # Python dependencies (pinned)
-├── bindep.txt                  # System packages
-├── ansible.cfg                 # Hardened Ansible config
-├── Makefile                    # Build/scan/test commands
-│
-├── playbooks/
-│   └── site.yml                # Main entrypoint — manifest-driven role dispatch
-│
-├── roles/                      # Internal roles (or pulled via collections)
-│
-├── inventory/
-│   ├── dev.yml
-│   ├── staging.yml
-│   └── prod.yml
-│
-├── group_vars/
-│   └── windows.yml             # WinRM connection vars (creds from env)
-│
-├── schemas/
-│   └── manifest-schema.json    # JSON Schema for manifest validation
-│
-├── scripts/
-│   ├── scan-collections.sh     # Security scan for Galaxy collection contents
-│   └── validate-manifest.py    # Manifest schema validation
-│
-└── examples/
-    └── manifest-example.yml    # Sample manifest (React app output)
+  ee/execution-environment.yml
+            │
+            │  ansible-builder
+            ▼
+   ghcr.io/ka1ne/ansible-ee          ← the Execution Environment image
+            │
+            ├──────────────┬────────────────────┐
+            ▼              ▼                    ▼
+      make test-local     AWX              Tekton on OpenShift
+      (laptop)        (job templates)      (build + probe)
+            │              │                    │
+            └──────────────┴────────────────────┘
+                           │  WinRM
+                           ▼
+                    Windows hosts
+                    (IIS, SQL Server)
 ```
 
-## Getting Started
+One EE definition feeds all three paths. Every path calls the same `make`
+targets, so what CI builds and what you build locally cannot drift apart.
 
-### Prerequisites
+## Three ways to use it
 
-| Tool | Min version |
-|------|-------------|
-| Python | 3.11 |
-| Podman | 4.x |
-| Git | any |
+| Path | Command | Needs | Good for |
+|---|---|---|---|
+| Local | `make test-local` | Docker, a Windows host | Trying it out, developing content |
+| AWX | `make awx-apply` | An AWX instance | How you would actually run this |
+| OpenShift | `make tekton-apply` | OpenShift Pipelines | Building the EE in-cluster |
 
-### First-time setup
+The local path is the one to start with. It proves the image, your credentials
+and the network path before AWX is anywhere in the picture.
+
+## Quickstart
+
+Requires Python 3.11+, git, and Docker (or Podman via `CONTAINER_RT=podman`).
 
 ```bash
-cp .env.example .env
-$EDITOR .env          # set IMAGE_NAME at minimum; add mirror vars for air-gapped CI
-
-make bootstrap        # verify prereqs + create .venv
-make test-bootstrap   # confirm all tools importable
+git clone https://github.com/ka1ne/ansible-ee.git
+cd ansible-ee
+make bootstrap && source .venv/bin/activate
+make deps
 ```
 
-### Common tasks
+Prepare a Windows host so it accepts WinRM — as Administrator on that host:
+
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope Process -Force
+.\dev\scripts\setup-winrm-local.ps1 -WinRMPassword '<a password you generated>'
+```
+
+Then fill in credentials and run the probe:
 
 ```bash
-make build              # Build the EE image
-make lint               # ansible-lint + yamllint
-make test-syntax        # Playbook syntax check
-make scan               # Trivy + collection security scan
-make test-dry-run       # --check --diff against dev inventory
-make push               # Tag and push to registry
-
-# Molecule — smoke test (Windows Server 2019 via Podman/KVM)
-make test-molecule-init
-
-# Molecule — full SQL Server role test (requires a live host)
-MOLECULE_TEST_HOST=<host> ANSIBLE_WINRM_USER=<u> ANSIBLE_WINRM_PASSWORD=<p> \
-  make test-molecule-mssql
-
-make help               # List all targets
+cp dev/.env.example .env     # set WINRM_USER, WINRM_PASSWORD, MSSQL_SA_PASSWORD
+make test-local
 ```
 
-## AWX (local dev)
+That builds the EE, starts a throwaway SQL Server 2022 container, and runs the
+connectivity probe. A green run proves WinRM works, facts can be gathered, the
+Windows host can reach SQL Server, and a SQL login succeeds.
 
-AWX runs on k3s via the AWX Operator (`awx/awx-instance.yml`).
+Details and troubleshooting are in [docs/quickstart.md](docs/quickstart.md).
 
-```bash
-make awx-operator   # install operator
-make awx-install    # deploy AWX (~5 min)
-make awx-status     # get pod status + admin password
-# create an API token: Settings → Users → admin → Tokens → Add → set AWX_TOKEN=<token> in .env
-make awx-sync-ee    # register/update the EE definition
+## What is in here
+
+```
+ee/                  Execution Environment definition — the one build recipe
+playbooks/           Entry points, starting with connectivity_probe.yml
+roles/               IIS, SQL Server and .NET migration content
+inventories/         local/ for the dev harness, example/ as a template
+awx/                 AWX operator manifests, and configuration-as-code
+ci/tekton/           OpenShift adapter over the same make targets
+dev/                 Local harness: .env template and helper scripts
+docs/                Longer-form documentation
 ```
 
-The Harness `ee-build` pipeline runs `awx/register-ee.sh` automatically after every successful build.
+Run `make` with no arguments to list every target.
 
-## Pipeline Usage
+## Status
 
-The EE image is consumed as a Container Step in Harness pipelines.
-The React manifest generator produces a YAML file which is passed as `--extra-vars`
-to `ansible-playbook`. See `examples/manifest-example.yml` for the expected format.
+The Execution Environment, the connectivity probe, CI and the Tekton adapter
+work today. The AWX configuration-as-code layer and the hardened IIS and SQL
+Server roles are in progress — see the
+[open issues](https://github.com/ka1ne/ansible-ee/issues) and the milestone
+labels for what is landing next.
 
-```bash
-ansible-playbook playbooks/site.yml \
-  -i inventory/dev.yml \
-  -e @manifest.yml \
-  --limit "dev-win-01.ka1ne.dev"
-```
+The published image is `ghcr.io/ka1ne/ansible-ee`, tagged `latest` from `main`
+and by short SHA for every build.
 
-## Security
+## Documentation
 
-- All Galaxy collections pulled from internal mirror only (no public egress)
-- Python + system deps pinned to exact versions
-- EE image scanned with Trivy, SBOM generated with Syft
-- Collection Python code scanned with Bandit + Semgrep
-- Image runs as non-root (UID 1000)
-- Credentials injected at runtime via environment variables, never baked into image
+- [Quickstart](docs/quickstart.md) — the local path, end to end
+- [Execution Environment](docs/execution-environment.md) — what is in the image and how to change it
+- [Windows host preparation](docs/windows-host-prep.md) — WinRM, transports, and what to use when
+- [Local development](docs/local-dev.md) — the dev harness and how to iterate
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: build logic goes in
+the Makefile so all three run paths stay in step, and lint findings get fixed
+rather than skipped. Issues labelled `good-first-issue` are scoped to be
+approachable.
+
+## Licence
+
+[Apache-2.0](LICENSE).

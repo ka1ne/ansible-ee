@@ -1,25 +1,31 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Enables WinRM with NTLM over HTTP on the local machine for PoC testing.
-    DO NOT use this config in production — HTTP + basic/NTLM is for local dev only.
+    Enables WinRM with NTLM over HTTP on the local machine for local development.
+    DO NOT use this config in production - HTTP with unencrypted traffic is for a
+    trusted local network only. See docs/windows-host-prep.md for the HTTPS setup.
 
 .HOW TO RUN
     Open PowerShell as Administrator, then:
         Set-ExecutionPolicy RemoteSigned -Scope Process -Force
-        .\poc\scripts\setup-winrm-local.ps1
+        .\dev\scripts\setup-winrm-local.ps1 -WinRMPassword '<a password you generated>'
 
 .WHAT IT DOES
     1. Runs Quick Config (enables WinRM service + default HTTP listener on 5985)
     2. Sets auth to NTLM only (no Kerberos needed for local PoC)
     3. Opens firewall for port 5985 from the Podman/WSL2 subnet
-    4. Creates a local user 'ansible-poc' for Ansible to authenticate with
+    4. Creates a local user 'ansible' for Ansible to authenticate with
     5. Prints connection info for the .env file
 #>
 
 param(
-    [string]$WinRMUser     = 'ansible-poc',
-    [string]$WinRMPassword = 'changeme123!'
+    [string]$WinRMUser = 'ansible',
+
+    # No default on purpose. This script opens WinRM to the network and creates
+    # a local account; a well-known default password on that account would be a
+    # genuine hazard. Pass one you have generated.
+    [Parameter(Mandatory = $true)]
+    [string]$WinRMPassword
 )
 
 Set-StrictMode -Version Latest

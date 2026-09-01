@@ -27,7 +27,14 @@
     name: "{{ iis_config.app_pool | default('DefaultAppPool') }}"
     state: stopped
   when: iis_config is defined
-  ignore_errors: true
+  register: dotnet_migrate_pool_stop
+  # On a first deploy the pool does not exist yet, and failing to stop a pool
+  # that was never there should not fail the run. Any other error still should,
+  # which blanket ignore_errors would have swallowed.
+  failed_when:
+    - dotnet_migrate_pool_stop is failed
+    - "'not exist' not in (dotnet_migrate_pool_stop.msg | default('') | lower)"
+    - "'not found' not in (dotnet_migrate_pool_stop.msg | default('') | lower)"
 
 - name: Extract artifact to deploy path
   community.windows.win_unzip:
