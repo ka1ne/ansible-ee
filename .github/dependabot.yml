@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["area/ci", "type/chore"]
+    commit-message:
+      prefix: "ci"
+
+  # The development toolchain. The EE's own Python dependencies in
+  # ee/requirements.txt are pinned deliberately and are updated by hand, so
+  # that directory is not watched here — a surprise bump to pywinrm would
+  # change the transport behaviour of every playbook.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["area/ci", "type/chore"]
+    commit-message:
+      prefix: "deps"

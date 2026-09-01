@@ -1,0 +1,29 @@
+---
+# molecule/init/destroy.yml
+# Stops and removes the Windows Server 2019 container.
+
+- name: Destroy Windows Server 2019 container
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    container_name: win-2019-init
+
+  tasks:
+    - name: Stop container
+      ansible.builtin.command:
+        cmd: podman stop {{ container_name }}
+      register: stop_result
+      changed_when: stop_result.rc == 0
+      failed_when: false
+
+    - name: Remove container
+      ansible.builtin.command:
+        cmd: podman rm -f {{ container_name }}
+      register: rm_result
+      changed_when: rm_result.rc == 0
+      failed_when: false
+
+    - name: Confirm container gone
+      ansible.builtin.debug:
+        msg: "Container {{ container_name }} removed."

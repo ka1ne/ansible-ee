@@ -1,0 +1,53 @@
+---
+# Build the Execution Environment on OpenShift.
+#
+# This deliberately does NOT carry its own build recipe. Step one runs
+# ansible-builder over ee/execution-environment.yml — the same file the
+# Makefile and GitHub Actions use — to generate a Containerfile and context.
+# Step two hands that context to buildah. The build therefore cannot drift
+# from the one contributors run locally.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-ansible-ee
+spec:
+  params:
+    - name: IMAGE
+      type: string
+      description: Fully qualified image to build and push (registry/repo/name:tag)
+    - name: EE_FILE
+      type: string
+      description: Path to the execution environment definition
+      default: ee/execution-environment.yml
+    - name: CONTEXT_DIR
+      type: string
+      description: Directory the generated build context is written to
+      default: context
+  workspaces:
+    - name: source
+  steps:
+    - name: generate-context
+      image: registry.access.redhat.com/ubi9/python-311:latest
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        pip install --no-cache-dir 'ansible-builder>=3.1,<4'
+        make ee-context EE_FILE="$(params.EE_FILE)" EE_CONTEXT="$(params.CONTEXT_DIR)"
+
+    - name: build-and-push
+      image: quay.io/buildah/stable:v1.33.0
+      workingDir: $(workspaces.source.path)
+      securityContext:
+        privileged: true
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        buildah bud \
+          --storage-driver=vfs \
+          --format=oci \
+          -f "$(params.CONTEXT_DIR)/Containerfile" \
+          -t "$(params.IMAGE)" \
+          "$(params.CONTEXT_DIR)"
+        buildah push --storage-driver=vfs "$(params.IMAGE)"
+        echo "Built and pushed $(params.IMAGE)"

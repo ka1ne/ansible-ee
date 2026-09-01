@@ -1,0 +1,65 @@
+---
+# molecule/winrm-ping/molecule.yml
+#
+# EE smoke test: spins up a Windows Server 2019 container via dockur/windows
+# (KVM/QEMU inside Podman), then runs win_ping through the EE image built from
+# the project Dockerfile to prove the full EE→WinRM path works end-to-end.
+#
+# Self-contained — no external Windows host needed.  Runs on any Linux host
+# (including CI) with /dev/kvm access.
+#
+# Prerequisites:
+#   - Podman installed, /dev/kvm accessible (check: ls /dev/kvm)
+#   - EE image built (make build) or available
+#
+# Required env var:
+#   EE_IMAGE       — EE image to test (default: ghcr.io/ka1ne/ansible-ee:latest)
+#
+# Optional:
+#   EE_PULL_POLICY — missing (default) | always | never
+#   WIN_IMAGE      — override Windows container image
+#                    (default: ghcr.io/dockur/windows)
+#   WIN_PASSWORD   — WinRM password set on the Windows container (default: Molecule1!)
+
+dependency:
+  name: galaxy
+  options:
+    requirements-file: "${MOLECULE_PROJECT_DIRECTORY}/requirements.yml"
+
+driver:
+  name: default
+
+platforms:
+  - name: win-2019-ping
+    groups:
+      - windows
+
+provisioner:
+  name: ansible
+  # ee-runner.sh rewrites ansible-playbook calls to ansible-navigator run
+  # so every playbook executes inside the EE container.
+  executable: "${MOLECULE_SCENARIO_DIRECTORY}/ee-runner.sh"
+  env:
+    EE_IMAGE: "${EE_IMAGE:-ghcr.io/ka1ne/ansible-ee:latest}"
+    EE_PULL_POLICY: "${EE_PULL_POLICY:-missing}"
+    ANSIBLE_NAVIGATOR_CONFIG_FILE: "${MOLECULE_PROJECT_DIRECTORY}/ansible-navigator.yml"
+  connection_options:
+    ansible_connection: winrm
+    ansible_winrm_transport: basic
+    ansible_winrm_server_cert_validation: ignore
+    ansible_port: 5985
+    ansible_host: "127.0.0.1"
+    ansible_user: Administrator
+    ansible_password: "${WIN_PASSWORD:-Molecule1!}"
+
+verifier:
+  name: ansible
+
+scenario:
+  name: winrm-ping
+  test_sequence:
+    - dependency
+    - create
+    - converge
+    - verify
+    - destroy

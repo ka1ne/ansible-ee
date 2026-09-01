@@ -1,0 +1,79 @@
+---
+# roles/sqlserver_deploy/defaults/main.yml
+
+# ── Instance ──────────────────────────────────────────────────────────────────
+sqlserver_instance: MSSQLSERVER          # default (unnamed) instance
+# Named instance example: MSSQL01
+
+# ── Prerequisites ─────────────────────────────────────────────────────────────
+sqlserver_install_prerequisites: true
+sqlserver_psrepository: PSGallery        # swap for internal NuGet feed if needed
+sqlserver_psrepository_url: ""           # leave empty to keep existing registration
+sqlserver_nuget_provider: true
+
+# ── Server-level configuration (SqlServerDsc: SqlConfiguration) ──────────────
+# Keys map directly to SQL Server sp_configure option names.
+sqlserver_server_config:
+  max degree of parallelism: 0
+  max server memory (MB): 4096
+  min server memory (MB): 256
+  optimize for ad hoc workloads: 1
+  remote admin connections: 1
+
+# ── Databases (SqlServerDsc: SqlDatabase) ─────────────────────────────────────
+# recovery_model: Full | Simple | BulkLogged
+# compatibility_level: integer e.g. 150 (SQL 2019), 160 (SQL 2022)
+# state: Present | Absent
+sqlserver_databases: []
+# Example:
+# sqlserver_databases:
+#   - name: AppDB
+#     recovery_model: Full
+#     compatibility_level: 150
+#     owner: sa
+#     state: Present
+
+# ── Backup ────────────────────────────────────────────────────────────────────
+sqlserver_backup_path: 'C:\SQLBackup'
+sqlserver_backup_enabled: true
+sqlserver_backup_compression: true
+
+# sqlserver_backup_jobs:
+#   - database: AppDB
+#     type: Full            # Full | Diff | Log
+sqlserver_backup_jobs: []
+
+# ── Restore ───────────────────────────────────────────────────────────────────
+# sqlserver_restore_jobs:
+#   - database: AppDB_Restored
+#     backup_file: 'C:\SQLBackup\AppDB_*.bak'   # supports wildcards via dbatools
+#     with_replace: true
+#     no_recovery: false
+#     data_path: 'C:\SQLData'                   # optional; omit to keep default
+#     log_path:  'C:\SQLLog'                    # optional
+sqlserver_restore_jobs: []
+
+# ── Logins (SqlServerDsc: SqlLogin) ───────────────────────────────────────────
+# login_type: SqlLogin | WindowsUser | WindowsGroup
+# state: Present | Absent
+sqlserver_logins: []
+# Example:
+# sqlserver_logins:
+#   - name: app_svc
+#     login_type: SqlLogin
+#     password: "{{ vault_app_svc_password }}"
+#     password_expiry: false
+#     password_policy: false
+#     must_change: false
+#     state: Present
+
+# ── Database users & role membership (dbatools) ───────────────────────────────
+sqlserver_db_users: []
+# Example:
+# sqlserver_db_users:
+#   - database: AppDB
+#     login: app_svc
+#     username: app_svc
+#     roles:
+#       - db_datareader
+#       - db_datawriter

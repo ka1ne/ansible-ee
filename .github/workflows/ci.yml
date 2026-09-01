@@ -1,0 +1,83 @@
+name: CI
+
+# The public gate. Deliberately thin: every step shells out to a make target,
+# so what runs here is exactly what a contributor runs locally. If you find
+# yourself adding a build command to this file, put it in the Makefile instead.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install the toolchain
+        run: pip install -r requirements-dev.txt
+
+      - name: Install collections
+        # ansible-lint resolves module names against installed collections, so
+        # this has to happen before linting or every Windows task reports as an
+        # unknown module.
+        run: make deps
+
+      - name: Lint
+        run: make lint
+
+  build:
+    name: Build the Execution Environment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install the toolchain
+        run: pip install -r requirements-dev.txt
+
+      - name: Build
+        # Build only. Publishing happens in release.yml, so a pull request from
+        # a fork never needs registry credentials.
+        run: make ee-build
+
+      - name: Verify the image
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/ka1ne/ansible-ee:$(git rev-parse --short HEAD)"
+
+          docker run --rm "$IMAGE" ansible --version
+          docker run --rm "$IMAGE" ansible-galaxy collection list
+
+          # Check pywinrm against the interpreter Ansible actually uses, not
+          # whatever `python3` happens to be. The base image's python3 is 3.9
+          # while the EE builds against 3.11, so a bare `python3 -c "import
+          # winrm"` fails on a perfectly good image. Reading the path back out
+          # of `ansible --version` keeps this in step with the EE definition
+          # instead of hardcoding a version here.
+          PY=$(docker run --rm "$IMAGE" ansible --version \
+                 | grep 'python version' \
+                 | grep -oE '\(/[^)]+\)$' | tr -d '()')
+          test -n "$PY" || { echo "could not determine the Ansible interpreter"; exit 1; }
+          echo "Ansible interpreter: $PY"
+          docker run --rm "$IMAGE" "$PY" -c 'import winrm, requests_ntlm; print("pywinrm and requests-ntlm import cleanly")'

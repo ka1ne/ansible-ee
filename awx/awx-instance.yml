@@ -1,0 +1,41 @@
+---
+# awx/awx-instance.yml
+# AWX Operator CR — deploys a local AWX instance via the AWX Operator.
+# Apply after the operator is running (make awx-operator).
+#
+# Access: http://localhost:30080
+# Password: kubectl get secret awx-local-admin-password -n awx -o jsonpath='{.data.password}' | base64 -d
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: awx
+---
+apiVersion: awx.ansible.com/v1beta1
+kind: AWX
+metadata:
+  name: awx-local
+  namespace: awx
+spec:
+  service_type: nodeport
+  nodeport_port: 30080
+
+  # Keep it light for local dev
+  web_replicas: 1
+  task_replicas: 1
+
+  web_resource_requirements:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  task_resource_requirements:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi

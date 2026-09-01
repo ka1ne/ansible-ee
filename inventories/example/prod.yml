@@ -1,0 +1,20 @@
+---
+# Example prod inventory. Replace the hostnames with your own.
+# Connection settings live in group_vars/windows.yml.
+
+all:
+  children:
+    windows:
+      hosts:
+        prod-win-01.example.com:
+        prod-win-02.example.com:
+
+    linux:
+      hosts:
+        prod-linux-01.example.com:
+      vars:
+        ansible_connection: ssh
+        ansible_port: 22
+
+  vars:
+    env: prod

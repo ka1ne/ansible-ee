@@ -1,0 +1,75 @@
+name: Bug report
+description: Something does not work the way it should
+labels: ["type/bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The Windows details near the bottom matter more
+        than they look — whether a host is domain-joined decides which WinRM
+        transport applies, and that is behind a lot of connection failures.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The exact commands you ran.
+      placeholder: |
+        1. make ee-build
+        2. make test-local
+        3. fails at ...
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: |
+        Relevant output. Re-run with `-vvv` if it is a connection problem.
+        Please remove passwords and hostnames you would rather not publish.
+      render: shell
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where were you running it
+      options:
+        - Locally (make test-local)
+        - AWX
+        - Tekton on OpenShift
+        - GitHub Actions
+        - Somewhere else
+    validations:
+      required: true
+
+  - type: input
+    id: ee-image
+    attributes:
+      label: Execution Environment image
+      description: The tag you used, or the commit you built from.
+      placeholder: ghcr.io/ka1ne/ansible-ee:latest
+
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version on the target
+      placeholder: Windows Server 2022
+
+  - type: dropdown
+    id: domain-joined
+    attributes:
+      label: Is the target domain-joined
+      options:
+        - "No — workgroup or standalone"
+        - "Yes — Active Directory domain"
+        - Not applicable

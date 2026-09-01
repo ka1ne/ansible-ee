@@ -1,0 +1,45 @@
+---
+# roles/iis_deploy/tasks/main.yml
+# Stub — replace with your existing IIS role logic
+
+- name: Validate IIS config input
+  ansible.builtin.assert:
+    that:
+      - iis_config is defined
+      - iis_config.site_name is defined
+    fail_msg: "iis_config.site_name is required"
+
+- name: Ensure IIS feature is installed
+  ansible.windows.win_feature:
+    name: Web-Server
+    state: present
+    include_sub_features: true
+    include_management_tools: true
+  register: iis_install
+
+- name: Create application pool
+  community.windows.win_iis_webapppool:
+    name: "{{ iis_config.app_pool }}"
+    state: started
+    attributes:
+      managedRuntimeVersion: "{{ iis_config.dotnet_version | default('v4.0') }}"
+  when: iis_config.app_pool is defined
+
+- name: Create IIS site
+  community.windows.win_iis_website:
+    name: "{{ iis_config.site_name }}"
+    state: started
+    application_pool: "{{ iis_config.app_pool | default('DefaultAppPool') }}"
+    physical_path: "C:\\inetpub\\wwwroot\\{{ iis_config.site_name }}"
+
+- name: Configure bindings
+  community.windows.win_iis_webbinding:
+    name: "{{ iis_config.site_name }}"
+    protocol: "{{ item.protocol }}"
+    port: "{{ item.port }}"
+    host_header: "{{ item.hostname | default(omit) }}"
+    certificate_hash: "{{ item.cert_thumbprint | default(omit) }}"
+    certificate_store_name: "{{ 'My' if item.protocol == 'https' else omit }}"
+    state: present
+  loop: "{{ iis_config.bindings | default([]) }}"
+  no_log: true

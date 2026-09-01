@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(podman --version)",
+      "Bash(podman machine:*)",
+      "Bash(podman ps:*)",
+      "Bash(git checkout *)",
+      "Bash(wsl *)"
+    ]
+  }
+}

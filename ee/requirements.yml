@@ -1,0 +1,38 @@
+---
+# ee/requirements.yml — Ansible collections baked into the Execution Environment.
+#
+# Version policy: the two Windows collections that existing roles already depend
+# on are pinned exactly. The rest carry lower bounds until the first green CI
+# build reports the resolved versions, at which point they should be pinned too
+# (tracked in #2).
+
+collections:
+  # ── Windows fundamentals ──────────────────────────────────────────────────
+  # win_ping, win_feature, setup, win_shell, win_command.
+  - name: ansible.windows
+    version: "2.5.0"
+
+  # win_iis_*, and the general-purpose Windows modules the roles use.
+  - name: community.windows
+    version: "2.3.0"
+
+  # The IIS modules are moving here from community.windows. Carried so roles can
+  # migrate module by module without a flag day (#13).
+  - name: microsoft.iis
+    version: ">=1.0.0"
+
+  # ── SQL Server ────────────────────────────────────────────────────────────
+  # dbatools-backed SQL Server management, used by roles/sqlserver_deploy (#14).
+  - name: lowlydba.sqlserver
+    version: ">=2.0.0"
+
+  # ── AWX ───────────────────────────────────────────────────────────────────
+  # Lets the image run this project's own configuration-as-code against AWX,
+  # so the bootstrap can be an AWX job rather than something run by hand (#10).
+  #
+  # Note: infra.aap_configuration is the successor for AAP 2.5+. AWX maps to
+  # infra.controller_configuration; do not swap them without testing.
+  - name: awx.awx
+    version: ">=24.0.0"
+  - name: infra.controller_configuration
+    version: ">=2.5.0"

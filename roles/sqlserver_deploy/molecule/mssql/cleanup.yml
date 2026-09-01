@@ -1,0 +1,64 @@
+---
+# molecule/mssql/cleanup.yml
+# Removes all test artefacts from the SQL Server instance.
+# Run automatically at end of `molecule test`; can be run standalone:
+#   molecule cleanup -s mssql
+
+- name: Cleanup SQL Server test artefacts
+  hosts: all
+  gather_facts: false
+
+  vars:
+    _cleanup_instance: localhost
+
+  tasks:
+    - name: Drop test and restore databases
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        $targets = @('MoleculeAppDB', 'MoleculeReportDB', 'MoleculeAppDB_Restored')
+        foreach ($db in $targets) {
+            if (Get-DbaDatabase -SqlInstance {{ _cleanup_instance }} `
+                                -Database $db -ErrorAction SilentlyContinue) {
+                Remove-DbaDatabase -SqlInstance {{ _cleanup_instance }} `
+                                   -Database $db -Confirm:$false -EnableException
+                Write-Output "Dropped: $db"
+            } else {
+                Write-Output "Not found (skipped): $db"
+            }
+        }
+      register: drop_dbs
+      changed_when: "'Dropped:' in drop_dbs.stdout"
+
+    - name: Remove test SQL logins
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        foreach ($login in @('molecule_app_svc', 'molecule_readonly')) {
+            if (Get-DbaLogin -SqlInstance {{ _cleanup_instance }} `
+                             -Login $login -ErrorAction SilentlyContinue) {
+                Remove-DbaLogin -SqlInstance {{ _cleanup_instance }} `
+                                -Login $login -Confirm:$false -EnableException
+                Write-Output "Removed login: $login"
+            } else {
+                Write-Output "Login not found (skipped): $login"
+            }
+        }
+      register: drop_logins
+      changed_when: "'Removed login:' in drop_logins.stdout"
+
+    - name: Remove backup staging directory
+      ansible.windows.win_file:
+        path: 'C:\SQLBackup'
+        state: absent
+
+    - name: Remove restore staging directory
+      ansible.windows.win_file:
+        path: 'C:\SQLRestore'
+        state: absent
+
+    - name: Cleanup summary
+      ansible.builtin.debug:
+        msg:
+          - "{{ drop_dbs.stdout_lines | select('match', '^(Dropped|Not found)') | list }}"
+          - "{{ drop_logins.stdout_lines | select('match', '^(Removed|Login not)') | list }}"

@@ -1,0 +1,19 @@
+---
+# roles/sqlserver_deploy/tasks/databases.yml
+# Uses SqlServerDsc's SqlDatabase DSC resource.
+# CompatibilityLevel must be a named enum value: Version80 ... Version160.
+
+- name: Manage SQL Server databases
+  ansible.windows.win_dsc:
+    resource_name: SqlDatabase
+    module_version: latest
+    ServerName: "{{ ansible_hostname }}"
+    InstanceName: "{{ sqlserver_instance }}"
+    Name: "{{ item.name }}"
+    Ensure: "{{ item.state | default('Present') }}"
+    RecoveryModel: "{{ item.recovery_model | default('Full') }}"
+    CompatibilityLevel: "Version{{ item.compatibility_level | default(150) }}"
+    OwnerName: "{{ item.owner | default(omit) }}"
+  loop: "{{ sqlserver_databases }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.state | default('Present') }})"

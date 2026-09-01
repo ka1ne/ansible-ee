@@ -1,0 +1,197 @@
+---
+# molecule/mssql/verify.yml
+# Assertions against live SQL Server state using dbatools queries.
+# Also exercises the restore path by restoring MoleculeAppDB → MoleculeAppDB_Restored.
+
+- name: Verify SQL Server role state
+  hosts: all
+  gather_facts: false
+
+  vars:
+    _verify_instance: localhost   # dbatools uses localhost for default instance
+
+  tasks:
+    # ── Service ──────────────────────────────────────────────────────────────
+    - name: Verify SQL Server service is running
+      ansible.windows.win_service_info:
+        name: MSSQLSERVER
+      register: svc_info
+      failed_when: >
+        svc_info.services | length == 0 or
+        svc_info.services[0].state != 'started'
+
+    # ── Server config ─────────────────────────────────────────────────────────
+    - name: Verify max server memory setting
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        $cfg = Get-DbaSpConfigure -SqlInstance {{ _verify_instance }} `
+                                  -ConfigName 'max server memory (MB)'
+        if ($cfg.RunningValue -ne 2048) {
+            throw "Expected MaxServerMemory=2048, got $($cfg.RunningValue)"
+        }
+        Write-Output "MaxServerMemory=$($cfg.RunningValue)"
+      register: cfg_memory
+      changed_when: false
+
+    - name: Verify optimize for ad hoc workloads
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        $cfg = Get-DbaSpConfigure -SqlInstance {{ _verify_instance }} `
+                                  -ConfigName 'optimize for ad hoc workloads'
+        if ($cfg.RunningValue -ne 1) {
+            throw "Expected optimize_adhoc=1, got $($cfg.RunningValue)"
+        }
+        Write-Output "OptimizeAdhoc=$($cfg.RunningValue)"
+      register: cfg_adhoc
+      changed_when: false
+
+    # ── Databases ─────────────────────────────────────────────────────────────
+    - name: Verify test databases exist
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        $dbs = Get-DbaDatabase -SqlInstance {{ _verify_instance }} |
+               Select-Object -ExpandProperty Name
+        foreach ($db in @('MoleculeAppDB', 'MoleculeReportDB')) {
+            if ($db -notin $dbs) { throw "Database '$db' not found" }
+        }
+        Write-Output "Databases present: $($dbs -join ', ')"
+      register: db_check
+      changed_when: false
+
+    - name: Verify MoleculeAppDB recovery model is FULL
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        $db = Get-DbaDatabase -SqlInstance {{ _verify_instance }} -Database 'MoleculeAppDB'
+        if ($db.RecoveryModel -ne 'Full') {
+            throw "Expected Full recovery model, got $($db.RecoveryModel)"
+        }
+        Write-Output "RecoveryModel=$($db.RecoveryModel)"
+      register: recovery_full
+      changed_when: false
+
+    - name: Verify MoleculeReportDB recovery model is SIMPLE
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        $db = Get-DbaDatabase -SqlInstance {{ _verify_instance }} -Database 'MoleculeReportDB'
+        if ($db.RecoveryModel -ne 'Simple') {
+            throw "Expected Simple recovery model, got $($db.RecoveryModel)"
+        }
+        Write-Output "RecoveryModel=$($db.RecoveryModel)"
+      register: recovery_simple
+      changed_when: false
+
+    # ── Backups ───────────────────────────────────────────────────────────────
+    - name: Verify backup files were produced
+      ansible.windows.win_find:
+        paths: 'C:\SQLBackup'
+        patterns: "*.bak"
+        recurse: true
+      register: backup_files
+      failed_when: backup_files.files | length < 2
+
+    - name: Verify backup file sizes are non-zero
+      ansible.windows.win_shell: |
+        $files = Get-ChildItem 'C:\SQLBackup' -Recurse -Filter '*.bak'
+        $empty = $files | Where-Object { $_.Length -eq 0 }
+        if ($empty) { throw "Zero-byte backup files found: $($empty.Name -join ', ')" }
+        Write-Output "Backup files OK ($($files.Count) files)"
+      register: backup_size_check
+      changed_when: false
+
+    # ── Logins ────────────────────────────────────────────────────────────────
+    - name: Verify SQL logins exist
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        foreach ($login in @('molecule_app_svc', 'molecule_readonly')) {
+            $l = Get-DbaLogin -SqlInstance {{ _verify_instance }} -Login $login
+            if (-not $l) { throw "Login '$login' not found" }
+        }
+        Write-Output "Logins verified"
+      register: login_check
+      changed_when: false
+
+    # ── Database users & roles ────────────────────────────────────────────────
+    - name: Verify molecule_app_svc roles in MoleculeAppDB
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        $required = @('db_datareader', 'db_datawriter', 'db_ddladmin')
+        $actual = Get-DbaDbRoleMember -SqlInstance {{ _verify_instance }} `
+                                      -Database 'MoleculeAppDB' |
+                  Where-Object { $_.UserName -eq 'molecule_app_svc' } |
+                  Select-Object -ExpandProperty Role
+        foreach ($role in $required) {
+            if ($role -notin $actual) { throw "Missing role '$role' for molecule_app_svc" }
+        }
+        Write-Output "Roles OK: $($actual -join ', ')"
+      register: app_roles
+      changed_when: false
+
+    - name: Verify molecule_readonly role in MoleculeReportDB
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        $actual = Get-DbaDbRoleMember -SqlInstance {{ _verify_instance }} `
+                                      -Database 'MoleculeReportDB' |
+                  Where-Object { $_.UserName -eq 'molecule_readonly' } |
+                  Select-Object -ExpandProperty Role
+        if ('db_datareader' -notin $actual) {
+            throw "Missing db_datareader for molecule_readonly"
+        }
+        Write-Output "Roles OK: $($actual -join ', ')"
+      register: ro_roles
+      changed_when: false
+
+    # ── Restore test ──────────────────────────────────────────────────────────
+    - name: Restore MoleculeAppDB to MoleculeAppDB_Restored (from latest backup)
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        $backupFile = Get-ChildItem 'C:\SQLBackup' -Recurse -Filter 'MoleculeAppDB*.bak' |
+                      Sort-Object LastWriteTime -Descending |
+                      Select-Object -First 1 -ExpandProperty FullName
+        if (-not $backupFile) { throw "No MoleculeAppDB backup found in C:\SQLBackup" }
+
+        $result = Restore-DbaDatabase -SqlInstance {{ _verify_instance }} `
+                      -Path $backupFile `
+                      -DatabaseName 'MoleculeAppDB_Restored' `
+                      -WithReplace `
+                      -EnableException
+        if (-not $result) { throw "Restore returned no result" }
+        Write-Output "Restore OK: $($result.Database)"
+      register: restore_test
+      changed_when: true
+
+    - name: Verify MoleculeAppDB_Restored is online
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module dbatools
+        $db = Get-DbaDatabase -SqlInstance {{ _verify_instance }} -Database 'MoleculeAppDB_Restored'
+        if (-not $db) { throw "MoleculeAppDB_Restored not found after restore" }
+        if ($db.Status -ne 'Normal') { throw "DB status is '$($db.Status)', expected Normal" }
+        Write-Output "Restored DB status: $($db.Status)"
+      register: restore_verify
+      changed_when: false
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    - name: Verification summary
+      ansible.builtin.debug:
+        msg:
+          - "Service      : running"
+          - "MaxMemory    : {{ cfg_memory.stdout_lines | last }}"
+          - "AdhocOpt     : {{ cfg_adhoc.stdout_lines | last }}"
+          - "Databases    : {{ db_check.stdout_lines | last }}"
+          - "Recovery Full: {{ recovery_full.stdout_lines | last }}"
+          - "Recovery Simp: {{ recovery_simple.stdout_lines | last }}"
+          - "Backups      : {{ backup_files.files | length }} .bak files"
+          - "Logins       : {{ login_check.stdout_lines | last }}"
+          - "AppDB roles  : {{ app_roles.stdout_lines | last }}"
+          - "RepoDB roles : {{ ro_roles.stdout_lines | last }}"
+          - "Restore      : {{ restore_test.stdout_lines | last }}"
+          - "Restore check: {{ restore_verify.stdout_lines | last }}"

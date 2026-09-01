@@ -1,0 +1,64 @@
+---
+# molecule/init/create.yml
+# Starts a Windows Server 2019 container via dockur/windows (KVM/QEMU inside
+# Podman) and waits until WinRM is accepting connections.
+#
+# dockur/windows auto-runs winrm quickconfig on first boot, enabling basic auth
+# on port 5985.  Boot takes 3-8 min depending on host; the wait_for below
+# handles that.
+
+- name: Create Windows Server 2019 container
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    container_name: win-2019-init
+    win_image: "{{ lookup('env', 'WIN_IMAGE') | default('ghcr.io/dockur/windows', true) }}"
+    win_password: "{{ lookup('env', 'WIN_PASSWORD') | default('Molecule1!', true) }}"
+    winrm_port: 5985
+    winrm_timeout: 600   # seconds — Windows first-boot can be slow
+
+  tasks:
+    - name: Check /dev/kvm is accessible
+      ansible.builtin.stat:
+        path: /dev/kvm
+      register: kvm_stat
+      failed_when: not kvm_stat.stat.exists
+      # If this fails: enable nested virt in WSL2 or run as a user with kvm group access
+
+    - name: Remove any stale container with the same name
+      ansible.builtin.command:
+        cmd: podman rm -f {{ container_name }}
+      register: rm_result
+      changed_when: rm_result.rc == 0
+      failed_when: false
+
+    - name: Start Windows Server 2019 container
+      ansible.builtin.command:
+        cmd: >-
+          podman run -d
+          --name {{ container_name }}
+          --device /dev/kvm
+          --network host
+          --cap-add NET_ADMIN
+          -e VERSION=2019
+          -e USERNAME=Administrator
+          -e PASSWORD={{ win_password }}
+          -e HOME_DISK=no
+          {{ win_image }}
+      register: container_start
+      changed_when: container_start.rc == 0
+
+    - name: Wait for WinRM to accept connections, timeout {{ winrm_timeout }}
+      ansible.builtin.wait_for:
+        host: "127.0.0.1"
+        port: "{{ winrm_port }}"
+        timeout: "{{ winrm_timeout }}"
+        sleep: 15
+        msg: >-
+          Timed out waiting for WinRM on 127.0.0.1:{{ winrm_port }}.
+          Check container logs: podman logs {{ container_name }}
+
+    - name: Show container ID
+      ansible.builtin.debug:
+        msg: "Container started: {{ container_start.stdout | trim }}"

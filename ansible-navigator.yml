@@ -1,0 +1,20 @@
+---
+# ansible-navigator.yml — project-level navigator config
+# Used by molecule/init via ee-runner.sh when ANSIBLE_NAVIGATOR_CONFIG_FILE
+# points here.  Also used for ad-hoc navigator invocations from the project root.
+
+ansible-navigator:
+  execution-environment:
+    enabled: true
+    # Override at runtime: EE_IMAGE=my-image:tag make test-molecule-init
+    image: "${EE_IMAGE:-ghcr.io/ka1ne/ansible-ee:latest}"
+    pull:
+      policy: missing
+    container-engine: docker
+    container-options:
+      # --network host lets the EE container reach the Windows container's
+      # WinRM port on 127.0.0.1:5985.  Linux/WSL2 only.
+      - "--network=host"
+  mode: stdout
+  logging:
+    level: warning

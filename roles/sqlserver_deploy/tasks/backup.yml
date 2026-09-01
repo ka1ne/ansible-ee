@@ -1,0 +1,35 @@
+---
+# roles/sqlserver_deploy/tasks/backup.yml
+# Uses dbatools Backup-DbaDatabase.
+# type: Full | Diff | Log
+# Backup filenames are timestamped automatically by dbatools.
+
+- name: Ensure backup directory exists
+  ansible.windows.win_file:
+    path: "{{ sqlserver_backup_path }}"
+    state: directory
+
+- name: Execute database backup jobs
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'Stop'
+    Import-Module dbatools -ErrorAction Stop
+
+    $params = @{
+        SqlInstance     = '{{ _sql_connect }}'
+        Database        = '{{ item.database }}'
+        BackupDirectory = '{{ sqlserver_backup_path }}'
+        Type            = '{{ item.type | default("Full") }}'
+        CompressBackup  = [bool]{{ sqlserver_backup_compression | bool | string | lower | replace('true','$true') | replace('false','$false') }}
+        Verify          = $true
+        EnableException = $true
+    }
+
+    $result = Backup-DbaDatabase @params
+    if (-not $result) { throw "Backup returned no result for '{{ item.database }}'" }
+    Write-Output "Backup OK: $($result.BackupPath)"
+  loop: "{{ sqlserver_backup_jobs }}"
+  loop_control:
+    label: "{{ item.database }} ({{ item.type | default('Full') }})"
+  register: backup_results
+  changed_when: true
+  no_log: false

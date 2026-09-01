@@ -1,0 +1,87 @@
+---
+# molecule/mssql/converge.yml
+# Exercises the full sqlserver_deploy role:
+#   - server config via SqlServerDsc
+#   - database create (Full + Simple recovery)
+#   - SQL login creation
+#   - database user mapping + role grants
+#   - full backup of both test databases
+#
+# Restore is tested in verify.yml (restores from backup taken here).
+
+- name: Converge — SQL Server role
+  hosts: all
+  gather_facts: true
+
+  vars:
+    sqlserver_instance: MSSQLSERVER
+    sqlserver_install_prerequisites: false  # already done in prepare.yml
+    sqlserver_psrepository: PSGallery
+
+    # ── Server config ───────────────────────────────────────────────────────
+    sqlserver_server_config:
+      max degree of parallelism: 0
+      max server memory (MB): 2048
+      min server memory (MB): 256
+      optimize for ad hoc workloads: 1
+
+    # ── Databases ───────────────────────────────────────────────────────────
+    sqlserver_databases:
+      - name: MoleculeAppDB
+        recovery_model: Full
+        compatibility_level: 150
+        owner: sa
+        state: Present
+      - name: MoleculeReportDB
+        recovery_model: Simple
+        compatibility_level: 150
+        owner: sa
+        state: Present
+
+    # ── Logins ──────────────────────────────────────────────────────────────
+    sqlserver_logins:
+      - name: molecule_app_svc
+        login_type: SqlLogin
+        password: "P@ssw0rd_M0l3cule!"
+        password_expiry: false
+        password_policy: false
+        must_change: false
+        state: Present
+      - name: molecule_readonly
+        login_type: SqlLogin
+        password: "P@ssw0rd_R3adOnly!"
+        password_expiry: false
+        password_policy: false
+        must_change: false
+        state: Present
+
+    # ── Database users & roles ───────────────────────────────────────────────
+    sqlserver_db_users:
+      - database: MoleculeAppDB
+        login: molecule_app_svc
+        username: molecule_app_svc
+        roles:
+          - db_datareader
+          - db_datawriter
+          - db_ddladmin
+      - database: MoleculeReportDB
+        login: molecule_readonly
+        username: molecule_readonly
+        roles:
+          - db_datareader
+
+    # ── Backup ──────────────────────────────────────────────────────────────
+    sqlserver_backup_path: 'C:\SQLBackup'
+    sqlserver_backup_enabled: true
+    sqlserver_backup_compression: true
+    sqlserver_backup_jobs:
+      - database: MoleculeAppDB
+        type: Full
+      - database: MoleculeReportDB
+        type: Full
+
+    # Restore is exercised in verify.yml, not here
+    sqlserver_restore_jobs: []
+
+  roles:
+    - role: sqlserver_deploy
