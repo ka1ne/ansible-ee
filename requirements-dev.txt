@@ -20,7 +20,7 @@ ansible-navigator>=24.0
 
 # Role and playbook testing
 molecule>=24.0
-molecule-plugins[docker]>=23.5,<24
+molecule-plugins[docker]>=26.7.15,<27
 
 # Runtime packages the playbooks import when run outside the EE.
 -r ee/requirements.txt
