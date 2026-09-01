@@ -1,0 +1,28 @@
+---
+# Kept compatible with what ansible-lint expects of a yamllint config, so the
+# two tools agree and ansible-lint's fix mode stays available.
+extends: default
+
+rules:
+  line-length:
+    max: 160
+    level: warning
+  truthy:
+    allowed-values: ['true', 'false']
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: false
+  braces:
+    max-spaces-inside: 1
+  document-start:
+    present: true
+  indentation:
+    spaces: 2
+    indent-sequences: true
+  octal-values:
+    forbid-implicit-octal: true
+
+ignore: |
+  context/
+  .venv/
+  .github/

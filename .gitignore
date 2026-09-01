@@ -9,8 +9,8 @@ sbom-*.json
 
 # Ansible
 *.retry
-/tmp/
 ansible_facts/
+/tmp/
 
 # Secrets — never commit
 .env
@@ -18,12 +18,14 @@ ansible_facts/
 *.key
 vault-password.txt
 .vault_pass
-poc/.env
 
 # Python
 __pycache__/
 *.pyc
 .venv/
+
+# Molecule
+.molecule/
 
 # OS
 .DS_Store

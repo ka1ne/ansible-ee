@@ -49,7 +49,7 @@
       register: container_start
       changed_when: container_start.rc == 0
 
-    - name: Wait for WinRM to accept connections (up to {{ winrm_timeout }}s)
+    - name: Wait for WinRM to accept connections, timeout {{ winrm_timeout }}
       ansible.builtin.wait_for:
         host: "127.0.0.1"
         port: "{{ winrm_port }}"

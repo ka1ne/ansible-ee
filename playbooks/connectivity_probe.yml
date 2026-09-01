@@ -1,0 +1,112 @@
+---
+# Windows connectivity probe.
+#
+# The first thing to run when adopting this kit, and the first thing to run
+# when something breaks. It proves, in order:
+#
+#   1. The Execution Environment can reach the Windows host over WinRM.
+#   2. Facts can be gathered from it.
+#   3. The Windows host can open a TCP connection to SQL Server.
+#   4. A SQL Server login actually succeeds (when sqlcmd is present).
+#
+# Nothing here changes the target host.
+#
+# Locally:  make test-local
+# In AWX:   the "Windows Connectivity Probe" job template
+
+- name: Windows and SQL Server connectivity probe
+  hosts: windows
+  gather_facts: false
+
+  vars:
+    # Address the WINDOWS host uses to reach SQL Server — not the address this
+    # playbook would use.
+    mssql_host: "{{ lookup('env', 'MSSQL_HOST') | default('mssql', true) }}"
+    mssql_port: 1433
+    mssql_sa_password: "{{ lookup('env', 'MSSQL_SA_PASSWORD') }}"
+
+  tasks:
+    - name: Verify WinRM transport with a ping
+      ansible.windows.win_ping:
+
+    - name: Gather minimal host facts
+      ansible.windows.setup:
+        gather_subset:
+          - "!all"
+          - min
+
+    - name: Report the host we reached
+      ansible.builtin.debug:
+        msg: >-
+          Connected to {{ ansible_hostname }}
+          running {{ ansible_os_name }} {{ ansible_distribution_version }}
+
+    - name: Test whether the Windows host can reach SQL Server
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        $reachable = Test-NetConnection `
+            -ComputerName '{{ mssql_host }}' `
+            -Port {{ mssql_port }} `
+            -InformationLevel Quiet `
+            -WarningAction SilentlyContinue
+        if (-not $reachable) {
+            Write-Error "{{ mssql_host }}:{{ mssql_port }} is not reachable from this host"
+            exit 1
+        }
+        Write-Output "{{ mssql_host }}:{{ mssql_port }} is reachable"
+      register: mssql_port_check
+      changed_when: false
+
+    - name: Report SQL Server reachability
+      ansible.builtin.debug:
+        var: mssql_port_check.stdout_lines
+
+    # sqlcmd is optional. Its absence is not a failure — port reachability has
+    # already been proven above — so the login test is skipped rather than
+    # failing the run.
+    - name: Look for sqlcmd on the Windows host
+      ansible.windows.win_command: where.exe sqlcmd
+      register: sqlcmd_lookup
+      failed_when: false
+      changed_when: false
+
+    - name: Confirm a SQL Server login succeeds
+      ansible.windows.win_shell: >
+        sqlcmd -S {{ mssql_host }},{{ mssql_port }}
+        -U sa -P "{{ mssql_sa_password }}"
+        -Q "SELECT @@VERSION" -l 15
+      register: sqlcmd_login
+      changed_when: false
+      failed_when: false
+      no_log: true
+      when: sqlcmd_lookup.rc == 0
+
+    - name: Report the outcome of the SQL Server login
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            'Login succeeded'
+            if sqlcmd_login.rc | default(1) == 0
+            else 'Login FAILED — check the sa password and that the instance accepts SQL authentication'
+          }}
+      when: sqlcmd_lookup.rc == 0
+
+    - name: Note that the login test was skipped
+      ansible.builtin.debug:
+        msg: >-
+          sqlcmd is not on this host's PATH, so the login test was skipped.
+          Port reachability was still confirmed above.
+      when: sqlcmd_lookup.rc != 0
+
+    - name: Summarise the probe
+      ansible.builtin.debug:
+        msg:
+          - "Target host    : {{ inventory_hostname }} ({{ ansible_host | default('n/a') }})"
+          - "SQL Server     : {{ mssql_host }}:{{ mssql_port }}"
+          - "Port reachable : {{ 'yes' if mssql_port_check.rc == 0 else 'no' }}"
+          - >-
+            Login test     :
+            {{
+              'skipped (no sqlcmd)' if sqlcmd_lookup.rc != 0
+              else ('passed' if sqlcmd_login.rc | default(1) == 0 else 'failed')
+            }}

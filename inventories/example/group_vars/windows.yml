@@ -1,0 +1,22 @@
+---
+# Connection settings shared by every host in the `windows` group.
+#
+# Credentials are read from the environment rather than stored here. Locally
+# they come from .env; in AWX they are injected by the WinRM credential type
+# (#11), which sets the same variable names.
+
+ansible_connection: winrm
+ansible_user: "{{ lookup('env', 'WINRM_USER') }}"
+ansible_password: "{{ lookup('env', 'WINRM_PASSWORD') }}"
+
+# CredSSP over HTTPS is the sane default for domain-joined hosts: it survives
+# the second hop to a file share, which NTLM does not.
+ansible_winrm_transport: credssp
+ansible_winrm_scheme: https
+ansible_port: 5986
+
+# Set to 'validate' once the hosts present certificates you trust.
+ansible_winrm_server_cert_validation: ignore
+
+ansible_winrm_operation_timeout_sec: 60
+ansible_winrm_read_timeout_sec: 70

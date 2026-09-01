@@ -1,0 +1,7 @@
+---
+# roles/iis_deploy/defaults/main.yml
+iis_config:
+  site_name: "DefaultSite"
+  app_pool: "DefaultAppPool"
+  dotnet_version: "v4.0"
+  bindings: []

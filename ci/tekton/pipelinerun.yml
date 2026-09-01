@@ -1,0 +1,28 @@
+---
+# Sample trigger. Set GIT_URL and IMAGE before applying.
+#
+#   kubectl create -f ci/tekton/pipelinerun.yml -n <namespace>
+#   make tekton-run NAMESPACE=<namespace>
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: ansible-ee-run-
+spec:
+  pipelineRef:
+    name: ansible-ee
+  params:
+    - name: GIT_URL
+      value: https://github.com/ka1ne/ansible-ee.git
+    - name: GIT_REVISION
+      value: main
+    # Change me — the in-cluster registry path for your namespace.
+    - name: IMAGE
+      value: image-registry.openshift-image-registry.svc:5000/your-namespace/ansible-ee:latest
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 2Gi

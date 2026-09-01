@@ -1,0 +1,20 @@
+---
+# Example dev inventory. Replace the hostnames with your own.
+# Connection settings live in group_vars/windows.yml.
+
+all:
+  children:
+    windows:
+      hosts:
+        dev-win-01.example.com:
+        dev-win-02.example.com:
+
+    linux:
+      hosts:
+        dev-linux-01.example.com:
+      vars:
+        ansible_connection: ssh
+        ansible_port: 22
+
+  vars:
+    env: dev

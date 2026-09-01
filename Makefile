@@ -1,209 +1,155 @@
-.PHONY: build build-context scan scan-image scan-collections sbom lint lint-yaml \
-        test-syntax test-dry-run \
-        test-molecule-winrm test-molecule-winrm-converge \
-        test-molecule-winrm-local test-molecule-winrm-local-converge _check-winrm-local-vars \
-        test-molecule-init test-molecule-init-converge \
-        test-molecule-mssql test-molecule-mssql-converge test-molecule-mssql-verify test-molecule-mssql-cleanup \
-        _check-mssql-vars \
-        awx-operator awx-install awx-status awx-sync-ee \
-        push clean venv venv-clean bootstrap check-prereqs test-bootstrap help
+# Makefile — the portability layer for this project.
+#
+# Every automation path drives these targets rather than reimplementing the
+# commands: GitHub Actions for the public path, Tekton for OpenShift, and you
+# on your laptop. If a build command is not in here, it will drift.
+#
+# Run `make` or `make help` for the target list.
 
-# Load .env if present (copy .env.example → .env to get started)
+.DEFAULT_GOAL := help
+
+# Load .env if present. Copy dev/.env.example to .env to get started.
 -include .env
 export
 
-# --- Config ---
-IMAGE_NAME    ?= ghcr.io/ka1ne/ansible-ee
-IMAGE_TAG     ?= $(shell git rev-parse --short HEAD)
-EE_FILE       ?= execution-environment.yml
-CONTAINER_RT  ?= docker
-VENV          ?= .venv
-PYTHON        ?= python3
-# WSL2: auto-detect Windows host IP from resolv.conf; override with WIN_HOST=<ip> make ...
-WIN_HOST      ?= $(shell awk '/nameserver/{print $$2; exit}' /etc/resolv.conf)
-WIN_USER      ?= Administrator
+# ── Configuration ───────────────────────────────────────────────────────────
+IMAGE_NAME   ?= ghcr.io/ka1ne/ansible-ee
+IMAGE_TAG    ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+IMAGE        := $(IMAGE_NAME):$(IMAGE_TAG)
+EE_FILE      ?= ee/execution-environment.yml
+EE_CONTEXT   ?= context
+CONTAINER_RT ?= docker
+NAMESPACE    ?= default
+PYTHON       ?= python3
+VENV         ?= .venv
 
-# --- Bootstrap ---
-bootstrap: check-prereqs venv ## First-time setup after cloning: verify deps then create venv
+# Prefer tools from .venv when it exists, otherwise fall back to PATH. This is
+# what lets the same targets work locally and in CI without a venv.
+VBIN            := $(if $(wildcard $(VENV)/bin),$(VENV)/bin/,)
+ANSIBLE_BUILDER := $(VBIN)ansible-builder
+ANSIBLE_LINT    := $(VBIN)ansible-lint
+YAMLLINT        := $(VBIN)yamllint
+ANSIBLE_PLAYBOOK:= $(VBIN)ansible-playbook
 
-check-prereqs: ## Verify system prerequisites (Python 3.11+, Podman, git)
-	@command -v git      >/dev/null 2>&1 || (echo "ERROR: git not found"    && exit 1)
-	@command -v podman   >/dev/null 2>&1 || (echo "ERROR: podman not found" && exit 1)
-	@$(PYTHON) -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" \
-		|| (echo "ERROR: Python 3.11+ required (found: $$($(PYTHON) --version))" && exit 1)
-	@test -f .env || (echo "WARN: .env not found — copy .env.example to .env and fill in values"; true)
+.PHONY: help bootstrap venv venv-clean check-prereqs \
+        ee-build ee-context ee-push ee-shell \
+        deps lint lint-yaml lint-ansible test-syntax test-local \
+        awx-operator awx-install awx-status awx-check awx-apply \
+        tekton-apply tekton-run clean
+
+# ── Setup ───────────────────────────────────────────────────────────────────
+
+check-prereqs: ## Verify git, a container runtime and Python 3.11+ are present
+	@command -v git >/dev/null || { echo "ERROR: git not found"; exit 1; }
+	@command -v $(CONTAINER_RT) >/dev/null || { echo "ERROR: $(CONTAINER_RT) not found (override with CONTAINER_RT=podman)"; exit 1; }
+	@$(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)' \
+		|| { echo "ERROR: Python 3.11+ required (found $$($(PYTHON) --version))"; exit 1; }
 	@echo "Prerequisites OK"
 
-test-bootstrap: ## Verify the venv is functional and all tooling is importable
-	@test -d $(VENV) || (echo "ERROR: venv not found — run 'make bootstrap' first" && exit 1)
-	@$(VENV)/bin/python -c "\
-import importlib.metadata as m; \
-pkgs = ['ansible-core','ansible-builder','ansible-navigator','molecule','pywinrm']; \
-[print(f'{p:<24} {m.version(p)}') for p in pkgs]"
-	@$(VENV)/bin/ansible-lint --version 2>&1 | head -1
-	@$(VENV)/bin/ansible-lint --version >/dev/null 2>&1 \
-		|| (echo "ERROR: ansible-lint failed — version conflict?" && $(VENV)/bin/ansible-lint --version && exit 1)
-	@$(VENV)/bin/yamllint --version
-	@echo "Bootstrap OK — all tools importable"
-
-# --- Venv ---
-venv: ## Create/update .venv with dev dependencies
+venv: ## Create .venv with the build and lint toolchain
 	$(PYTHON) -m venv $(VENV)
 	$(VENV)/bin/pip install --upgrade pip
 	$(VENV)/bin/pip install -r requirements-dev.txt
 
-venv-clean: ## Remove the .venv directory
+venv-clean: ## Remove .venv
 	rm -rf $(VENV)
 
-# --- Build ---
-build: ## Build the Execution Environment image
-	$(VENV)/bin/ansible-builder build \
+bootstrap: check-prereqs venv ## First-time setup after cloning
+
+# ── Execution Environment ───────────────────────────────────────────────────
+
+ee-build: ## Build the EE image locally
+	$(ANSIBLE_BUILDER) build \
 		--file $(EE_FILE) \
-		--tag $(IMAGE_NAME):$(IMAGE_TAG) \
+		--context $(EE_CONTEXT) \
+		--tag $(IMAGE) \
+		--tag $(IMAGE_NAME):latest \
 		--container-runtime $(CONTAINER_RT) \
 		--verbosity 2
 
-build-context: ## Generate Containerfile without building (inspect only)
-	$(VENV)/bin/ansible-builder create \
+ee-context: ## Generate the build context and Containerfile without building
+	$(ANSIBLE_BUILDER) create \
 		--file $(EE_FILE) \
-		--output-filename Containerfile
+		--context $(EE_CONTEXT) \
+		--output-filename Containerfile \
+		--verbosity 2
 
-# --- Security ---
-scan: scan-image scan-collections ## Run all security scans
+ee-push: ## Push the EE image (expects a prior docker login)
+	$(CONTAINER_RT) push $(IMAGE)
+	$(CONTAINER_RT) push $(IMAGE_NAME):latest
 
-scan-image: ## Trivy scan on built image
-	trivy image \
-		--severity HIGH,CRITICAL \
-		--exit-code 1 \
-		--format table \
-		$(IMAGE_NAME):$(IMAGE_TAG)
+ee-shell: ## Open a shell inside the built EE image
+	$(CONTAINER_RT) run --rm -it --entrypoint /bin/bash $(IMAGE)
 
-scan-collections: ## Scan Galaxy collection contents
-	chmod +x scripts/scan-collections.sh
-	./scripts/scan-collections.sh
+# ── Lint ────────────────────────────────────────────────────────────────────
 
-sbom: ## Generate SBOM for built image
-	syft $(IMAGE_NAME):$(IMAGE_TAG) \
-		-o spdx-json \
-		> sbom-$(IMAGE_TAG).spdx.json
+deps: ## Install the collections needed to lint and run playbooks outside the EE
+	$(VBIN)ansible-galaxy collection install -r ee/requirements.yml
 
-# --- Lint ---
-lint: ## Lint playbooks and roles
-	$(VENV)/bin/ansible-lint playbooks/ roles/ --strict
+lint: lint-yaml lint-ansible ## Run every linter
 
-lint-yaml: ## YAML syntax check
-	$(VENV)/bin/yamllint -c .yamllint.yml .
+lint-yaml: ## yamllint across the repository
+	$(YAMLLINT) -c .yamllint.yml .
 
-# --- Test ---
-test-syntax: ## Syntax check all playbooks
-	$(VENV)/bin/ansible-playbook playbooks/site.yml --syntax-check
+lint-ansible: ## ansible-lint across playbooks and roles
+	$(ANSIBLE_LINT) playbooks/ roles/
 
-test-dry-run: ## Dry run against dev inventory (no changes)
-	$(VENV)/bin/ansible-playbook playbooks/site.yml \
-		-i inventory/dev.yml \
-		--check --diff \
-		-e '{"capabilities": ["sqlserver"], "target_hosts": "windows", "env": "dev"}'
+test-syntax: ## Syntax-check the playbooks
+	$(ANSIBLE_PLAYBOOK) --syntax-check -i inventories/example/dev.yml playbooks/site.yml
+	$(ANSIBLE_PLAYBOOK) --syntax-check -i inventories/example/dev.yml playbooks/connectivity_probe.yml
 
-test-molecule-winrm: ## EE smoke test — spin up Windows 2019 container and verify WinRM ping through the EE image
-	PATH=$(VENV)/bin:$$PATH EE_IMAGE=$(IMAGE_NAME):$(IMAGE_TAG) \
-		$(VENV)/bin/molecule test -s winrm-ping
+# ── Local development ───────────────────────────────────────────────────────
 
-test-molecule-winrm-converge: ## Converge only (no destroy) — useful when iterating on the EE image
-	PATH=$(VENV)/bin:$$PATH EE_IMAGE=$(IMAGE_NAME):$(IMAGE_TAG) \
-		$(VENV)/bin/molecule converge -s winrm-ping
+test-local: ## Run the connectivity probe locally (needs .env and a WinRM host)
+	bash dev/scripts/run-local.sh
 
-_check-winrm-local-vars:
-	@test -n "$(WIN_HOST)"     || (echo "ERROR: WIN_HOST is required (auto-detect failed?)" && exit 1)
-	@test -n "$(WIN_PASSWORD)" || (echo "ERROR: WIN_PASSWORD is required"                   && exit 1)
+# ── AWX ─────────────────────────────────────────────────────────────────────
 
-test-molecule-winrm-local: _check-winrm-local-vars ## WSL2 dev: win_ping through EE to Windows host (no VM — targets $(WIN_HOST))
-	PATH=$(VENV)/bin:$$PATH \
-		WIN_HOST=$(WIN_HOST) WIN_USER=$(WIN_USER) WIN_PASSWORD=$(WIN_PASSWORD) \
-		EE_IMAGE=$(IMAGE_NAME):$(IMAGE_TAG) \
-		$(VENV)/bin/molecule test -s winrm-local
-
-test-molecule-winrm-local-converge: _check-winrm-local-vars ## Converge only (no verify/reset)
-	PATH=$(VENV)/bin:$$PATH \
-		WIN_HOST=$(WIN_HOST) WIN_USER=$(WIN_USER) WIN_PASSWORD=$(WIN_PASSWORD) \
-		EE_IMAGE=$(IMAGE_NAME):$(IMAGE_TAG) \
-		$(VENV)/bin/molecule converge -s winrm-local
-
-test-molecule-init: ## Spin up Windows Server 2019 VM and verify WinRM ping via EE container
-	cd roles/sqlserver_deploy && \
-		PATH=$(abspath $(VENV))/bin:$$PATH \
-		EE_IMAGE=$(IMAGE_NAME):$(IMAGE_TAG) \
-		$(abspath $(VENV))/bin/molecule test -s init
-
-test-molecule-init-converge: ## Converge only — create VM and run ping (no destroy)
-	cd roles/sqlserver_deploy && \
-		PATH=$(abspath $(VENV))/bin:$$PATH \
-		EE_IMAGE=$(IMAGE_NAME):$(IMAGE_TAG) \
-		$(abspath $(VENV))/bin/molecule converge -s init
-
-_check-mssql-vars:
-	@test -n "$(MOLECULE_TEST_HOST)"     || (echo "ERROR: MOLECULE_TEST_HOST is required"     && exit 1)
-	@test -n "$(ANSIBLE_WINRM_USER)"     || (echo "ERROR: ANSIBLE_WINRM_USER is required"     && exit 1)
-	@test -n "$(ANSIBLE_WINRM_PASSWORD)" || (echo "ERROR: ANSIBLE_WINRM_PASSWORD is required" && exit 1)
-
-_run-molecule-mssql:
-	cd roles/sqlserver_deploy && \
-		MOLECULE_TEST_HOST=$(MOLECULE_TEST_HOST) \
-		ANSIBLE_WINRM_USER=$(ANSIBLE_WINRM_USER) \
-		ANSIBLE_WINRM_PASSWORD=$(ANSIBLE_WINRM_PASSWORD) \
-		$(VENV)/bin/molecule $(MOLECULE_CMD) -s mssql
-
-test-molecule-mssql: _check-mssql-vars ## Full Molecule test of sqlserver_deploy against a live SQL Server host
-	$(MAKE) _run-molecule-mssql MOLECULE_CMD=test
-
-test-molecule-mssql-converge: _check-mssql-vars ## Converge only (no destroy) — useful during role development
-	$(MAKE) _run-molecule-mssql MOLECULE_CMD=converge
-
-test-molecule-mssql-verify: _check-mssql-vars ## Verify only — re-run assertions without re-converging
-	$(MAKE) _run-molecule-mssql MOLECULE_CMD=verify
-
-test-molecule-mssql-cleanup: _check-mssql-vars ## Cleanup test artefacts from SQL Server host
-	$(MAKE) _run-molecule-mssql MOLECULE_CMD=cleanup
-
-# --- AWX (local dev) ---
 AWX_OPERATOR_VERSION ?= 2.19.1
 AWX_HOST             ?= http://localhost:30080
-AWX_TOKEN            ?=
 
-awx-operator: ## Install AWX Operator onto the local k3s cluster
+awx-operator: ## Install the AWX Operator onto the current cluster
 	kubectl apply -k "github.com/ansible/awx-operator/config/default?ref=$(AWX_OPERATOR_VERSION)"
 	kubectl -n awx wait deployment awx-operator-controller-manager \
-		--for=condition=Available --timeout=120s
+		--for=condition=Available --timeout=180s
 
-awx-install: awx-operator ## Deploy AWX instance (run once after awx-operator)
+awx-install: awx-operator ## Deploy an AWX instance (run once, after awx-operator)
 	kubectl apply -f awx/awx-instance.yml
-	@echo "AWX is deploying — this takes 3-5 min on first run."
-	@echo "Watch progress: kubectl get pods -n awx -w"
+	@echo "AWX is deploying — first run takes 3-5 minutes."
+	@echo "Watch it with: kubectl get pods -n awx -w"
 
-awx-status: ## Show AWX pod status and print the access URL
+awx-status: ## Show AWX pods and the admin password
 	kubectl get pods -n awx
 	@echo ""
 	@echo "URL: $(AWX_HOST)"
-	@echo "Password: $$(kubectl get secret awx-local-admin-password -n awx \
-		-o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo 'not ready yet')"
+	@echo -n "Password: "
+	@kubectl get secret awx-local-admin-password -n awx \
+		-o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "not ready yet"
+	@echo ""
 
-awx-sync-ee: ## Register/update the EE in AWX (requires AWX_TOKEN in .env or env)
-	@test -n "$(AWX_TOKEN)" || (echo "ERROR: AWX_TOKEN is required" && exit 1)
-	AWX_HOST=$(AWX_HOST) \
-	AWX_TOKEN=$(AWX_TOKEN) \
-	EE_IMAGE=$(IMAGE_NAME):$(IMAGE_TAG) \
-	  bash awx/register-ee.sh
+awx-check: ## Preview the configuration-as-code changes (check mode)
+	@echo "Not implemented yet — see #10"
+	@exit 1
 
-# --- Publish ---
-push: ## Push image to internal registry
-	$(CONTAINER_RT) push $(IMAGE_NAME):$(IMAGE_TAG)
-	$(CONTAINER_RT) tag $(IMAGE_NAME):$(IMAGE_TAG) $(IMAGE_NAME):latest
-	$(CONTAINER_RT) push $(IMAGE_NAME):latest
+awx-apply: ## Apply the configuration-as-code to AWX
+	@echo "Not implemented yet — see #10"
+	@exit 1
 
-# --- Clean ---
-clean: ## Remove build artifacts
-	rm -rf context/ sbom-*.json
-	$(CONTAINER_RT) rmi $(IMAGE_NAME):$(IMAGE_TAG) 2>/dev/null || true
+# ── Tekton (OpenShift) ──────────────────────────────────────────────────────
 
-# --- Help ---
+tekton-apply: ## Apply the Tekton manifests
+	kubectl apply -f ci/tekton/ -n $(NAMESPACE)
+
+tekton-run: ## Trigger a PipelineRun (edit ci/tekton/pipelinerun.yml first)
+	kubectl create -f ci/tekton/pipelinerun.yml -n $(NAMESPACE)
+
+# ── Housekeeping ────────────────────────────────────────────────────────────
+
+clean: ## Remove build artifacts and the locally built image
+	rm -rf $(EE_CONTEXT) sbom-*.json
+	-$(CONTAINER_RT) rmi $(IMAGE) $(IMAGE_NAME):latest 2>/dev/null
+
 help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+		| sort \
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'

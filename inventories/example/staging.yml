@@ -1,0 +1,20 @@
+---
+# Example staging inventory. Replace the hostnames with your own.
+# Connection settings live in group_vars/windows.yml.
+
+all:
+  children:
+    windows:
+      hosts:
+        staging-win-01.example.com:
+        staging-win-02.example.com:
+
+    linux:
+      hosts:
+        staging-linux-01.example.com:
+      vars:
+        ansible_connection: ssh
+        ansible_port: 22
+
+  vars:
+    env: staging

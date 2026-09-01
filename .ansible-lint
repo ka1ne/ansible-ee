@@ -1,0 +1,31 @@
+---
+profile: production
+
+exclude_paths:
+  - .github/
+  - context/
+  - .venv/
+  - examples/
+
+skip_list:
+  # yamllint owns YAML formatting; running it twice just duplicates output.
+  - yaml[line-length]
+
+warn_list:
+  # The roles inherited from the original starter branch do not yet prefix
+  # their registered variables with the role name, and the dbatools PowerShell
+  # templates need reformatting. Both are real, both are reported, and both are
+  # being fixed where the roles get reworked and can actually be tested —
+  # #13 for iis_deploy, #14 for sqlserver_deploy. Reported rather than skipped
+  # so they stay visible and cannot be quietly forgotten.
+  - var-naming[no-role-prefix]
+  - jinja[spacing]
+  - role-name[path]
+
+enable_list:
+  - no-changed-when
+  - no-handler
+  - no-jinja-when
+  - name[casing]
+
+use_default_rules: true

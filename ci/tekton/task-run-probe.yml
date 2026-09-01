@@ -1,0 +1,41 @@
+---
+# Run the Windows connectivity probe inside the freshly built EE.
+#
+# Credentials come from a Kubernetes secret named winrm-credentials, which you
+# create once per namespace. See docs/quickstart.md.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: run-connectivity-probe
+spec:
+  params:
+    - name: IMAGE
+      type: string
+      description: Execution Environment image to run the probe in
+    - name: INVENTORY
+      type: string
+      description: Inventory file to target
+      default: inventories/local/hosts.yml
+    - name: SECRET_NAME
+      type: string
+      description: Secret holding the WinRM and SQL Server credentials
+      default: winrm-credentials
+  workspaces:
+    - name: source
+  steps:
+    - name: run-playbook
+      image: $(params.IMAGE)
+      workingDir: $(workspaces.source.path)
+      envFrom:
+        - secretRef:
+            name: $(params.SECRET_NAME)
+      env:
+        - name: ANSIBLE_STDOUT_CALLBACK
+          value: yaml
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        ansible-playbook \
+          -i "$(params.INVENTORY)" \
+          playbooks/connectivity_probe.yml \
+          -v

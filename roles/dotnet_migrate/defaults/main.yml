@@ -1,0 +1,6 @@
+---
+# roles/dotnet_migrate/defaults/main.yml
+dotnet_config:
+  version: "8.0"
+  deploy_path: ""
+  artifact_source: ""
