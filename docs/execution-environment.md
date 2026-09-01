@@ -84,6 +84,16 @@ Inside the image, `ansible-galaxy collection list` and `pip list` tell you what
 you actually got, which is not always what you asked for once dependency
 resolution has had its say.
 
+One thing to know when poking around in there: `python3` is still the base
+image's 3.9, while Ansible and everything in `ee/requirements.txt` live under
+`/usr/bin/python3.11`. So `python3 -c 'import winrm'` fails on a perfectly
+healthy image. Use the interpreter `ansible --version` reports:
+
+```bash
+docker run --rm <image> ansible --version | grep 'python version'
+docker run --rm <image> /usr/bin/python3.11 -c 'import winrm'
+```
+
 CI runs those same checks on every pull request, so a collection that fails to
 resolve fails the build rather than surfacing later as a missing module.
 

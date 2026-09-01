@@ -63,7 +63,21 @@ jobs:
 
       - name: Verify the image
         run: |
+          set -euo pipefail
           IMAGE="ghcr.io/ka1ne/ansible-ee:$(git rev-parse --short HEAD)"
+
           docker run --rm "$IMAGE" ansible --version
           docker run --rm "$IMAGE" ansible-galaxy collection list
-          docker run --rm "$IMAGE" python3 -c 'import winrm; print("pywinrm", winrm.__name__)'
+
+          # Check pywinrm against the interpreter Ansible actually uses, not
+          # whatever `python3` happens to be. The base image's python3 is 3.9
+          # while the EE builds against 3.11, so a bare `python3 -c "import
+          # winrm"` fails on a perfectly good image. Reading the path back out
+          # of `ansible --version` keeps this in step with the EE definition
+          # instead of hardcoding a version here.
+          PY=$(docker run --rm "$IMAGE" ansible --version \
+                 | grep 'python version' \
+                 | grep -oE '\(/[^)]+\)$' | tr -d '()')
+          test -n "$PY" || { echo "could not determine the Ansible interpreter"; exit 1; }
+          echo "Ansible interpreter: $PY"
+          docker run --rm "$IMAGE" "$PY" -c 'import winrm, requests_ntlm; print("pywinrm and requests-ntlm import cleanly")'
