@@ -34,6 +34,7 @@ ANSIBLE_PLAYBOOK:= $(VBIN)ansible-playbook
 .PHONY: help bootstrap venv venv-clean check-prereqs \
         ee-build ee-context ee-push ee-shell \
         deps lint lint-yaml lint-ansible test-syntax test-local \
+        test-vm test-vm-connectivity \
         awx-operator awx-install awx-status awx-check awx-apply \
         tekton-apply tekton-run clean
 
@@ -91,8 +92,8 @@ lint: lint-yaml lint-ansible ## Run every linter
 lint-yaml: ## yamllint across the repository
 	$(YAMLLINT) -c .yamllint.yml .
 
-lint-ansible: ## ansible-lint across playbooks and roles
-	$(ANSIBLE_LINT) playbooks/ roles/
+lint-ansible: ## ansible-lint across playbooks, roles and tests
+	$(ANSIBLE_LINT) playbooks/ roles/ tests/
 
 test-syntax: ## Syntax-check the playbooks
 	$(ANSIBLE_PLAYBOOK) --syntax-check -i inventories/example/dev.yml playbooks/site.yml
@@ -102,6 +103,22 @@ test-syntax: ## Syntax-check the playbooks
 
 test-local: ## Run the connectivity probe locally (needs .env and a WinRM host)
 	bash dev/scripts/run-local.sh $(ARGS)
+
+# ── Testing against a real Windows VM ───────────────────────────────────────
+# No provisioning: point these at a machine you already have.
+#
+#   make test-vm HOST=10.0.0.5
+#   make test-vm HOST=winlab01 SUITE=iis
+#   make test-vm HOST=10.0.0.5 ARGS="--keep --verbose"
+
+SUITE ?= all
+
+test-vm: ## Test against a Windows VM (HOST=<ip|name> [SUITE=all|connectivity|iis|mssql])
+	@test -n "$(HOST)" || { echo "ERROR: HOST is required, e.g. make test-vm HOST=10.0.0.5"; exit 1; }
+	bash dev/scripts/run-tests.sh --host $(HOST) --suite $(SUITE) $(ARGS)
+
+test-vm-connectivity: ## Just prove we can reach the VM (HOST=<ip|name>)
+	$(MAKE) test-vm HOST=$(HOST) SUITE=connectivity ARGS="$(ARGS)"
 
 # ── AWX ─────────────────────────────────────────────────────────────────────
 

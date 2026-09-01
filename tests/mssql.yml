@@ -1,0 +1,87 @@
+---
+# Exercise roles/sqlserver_deploy against a real SQL Server on a Windows host.
+#
+# Creates a uniquely-named database, checks it exists with the settings asked
+# for, and leaves it for the idempotence re-run. tests/mssql_cleanup.yml drops it.
+#
+#   make test-vm HOST=10.0.0.5 SUITE=mssql
+#
+# Assumes SQL Server is already installed on the target and that SqlServerDsc is
+# available. Set TEST_MSSQL_PREREQS=true to let the role install its PowerShell
+# prerequisites — off by default because it reaches out to PSGallery and mutates
+# the machine, which is rude to do to a shared lab VM without asking.
+
+- name: SQL Server deployment
+  hosts: windows
+  gather_facts: true
+
+  vars:
+    test_run_id: "{{ lookup('env', 'TEST_RUN_ID') | default('manual', true) }}"
+    test_database: "ansible_ee_test_{{ test_run_id }}"
+
+    sqlserver_instance: "{{ lookup('env', 'TEST_MSSQL_INSTANCE') | default('MSSQLSERVER', true) }}"
+    sqlserver_install_prerequisites: "{{ lookup('env', 'TEST_MSSQL_PREREQS') | default(false, true) | bool }}"
+
+    # Leave server-level tuning alone. Rewriting max memory on someone's lab box
+    # is not something a test should do.
+    sqlserver_server_config: {}
+
+    sqlserver_databases:
+      - name: "{{ test_database }}"
+        recovery_model: Simple
+        compatibility_level: 150
+        state: Present
+
+  tasks:
+    - name: Confirm the SQL Server service is running before we start
+      ansible.windows.win_service_info:
+        name: "{{ 'MSSQLSERVER' if sqlserver_instance == 'MSSQLSERVER' else 'MSSQL$' + sqlserver_instance }}"
+      register: mssql_service
+      failed_when: false
+
+    - name: Fail early with a clear message if SQL Server is not there
+      ansible.builtin.assert:
+        that:
+          - mssql_service.services | default([]) | length > 0
+          - mssql_service.services[0].state == 'started'
+        fail_msg: >-
+          SQL Server instance '{{ sqlserver_instance }}' is not running on this
+          host. Install it, or point at a different instance with
+          TEST_MSSQL_INSTANCE.
+        success_msg: "SQL Server instance '{{ sqlserver_instance }}' is running"
+
+    - name: Run the sqlserver_deploy role
+      ansible.builtin.include_role:
+        name: sqlserver_deploy
+
+    # ── Verify ────────────────────────────────────────────────────────────────
+
+    - name: Read the database back out of SQL Server
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        $q = "SET NOCOUNT ON; SELECT name, recovery_model_desc, compatibility_level
+              FROM sys.databases WHERE name = '{{ test_database }}'"
+        Invoke-Sqlcmd -ServerInstance '{{ _sql_connect }}' -Query $q `
+          | ConvertTo-Json -Compress
+      register: mssql_lookup
+      changed_when: false
+
+    - name: Parse what came back
+      ansible.builtin.set_fact:
+        mssql_db: "{{ mssql_lookup.stdout | trim | from_json }}"
+      when: mssql_lookup.stdout | trim | length > 0
+
+    - name: The database must exist with the settings we asked for
+      ansible.builtin.assert:
+        that:
+          - mssql_db is defined
+          - mssql_db.name == test_database
+          - mssql_db.recovery_model_desc == 'SIMPLE'
+          - mssql_db.compatibility_level == 150
+        fail_msg: >-
+          Database '{{ test_database }}' is missing or does not match:
+          {{ mssql_db | default('not found') }}
+        success_msg: >-
+          Database '{{ test_database }}' exists, recovery model
+          {{ mssql_db.recovery_model_desc }}, compatibility level
+          {{ mssql_db.compatibility_level }}

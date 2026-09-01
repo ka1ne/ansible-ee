@@ -52,6 +52,7 @@ targets, so what CI builds and what you build locally cannot drift apart.
 | Path | Command | Needs | Good for |
 |---|---|---|---|
 | Local | `make test-local` | Docker, a Windows host | Trying it out, developing content |
+| Tests | `make test-vm HOST=<ip>` | An existing Windows VM | Checking roles actually work |
 | AWX | `make awx-apply` | An AWX instance | How you would actually run this |
 | OpenShift | `make tekton-apply` | OpenShift Pipelines | Building the EE in-cluster |
 
@@ -89,13 +90,28 @@ Windows host can reach SQL Server, and a SQL login succeeds.
 
 Details and troubleshooting are in [docs/quickstart.md](docs/quickstart.md).
 
+## Testing against a VM
+
+Point the test suites at a Windows machine you already have — no provisioning,
+by IP address or hostname:
+
+```bash
+make test-vm HOST=10.0.0.5                 # connectivity, IIS and SQL Server
+make test-vm HOST=winlab01 SUITE=iis       # just one suite
+```
+
+Each suite runs the content, asserts the result is really what was asked for,
+runs it again to prove it is idempotent, then cleans up after itself. See
+[docs/testing.md](docs/testing.md).
+
 ## What is in here
 
 ```
 ee/                  Execution Environment definition — the one build recipe
 playbooks/           Entry points, starting with connectivity_probe.yml
 roles/               IIS, SQL Server and .NET migration content
-inventories/         local/ for the dev harness, example/ as a template
+tests/               Test suites run against a real Windows VM
+inventories/         local/, example/, and test/ driven by TEST_* variables
 awx/                 AWX operator manifests, and configuration-as-code
 ci/tekton/           OpenShift adapter over the same make targets
 dev/                 Local harness: .env template and helper scripts
@@ -121,6 +137,7 @@ and by short SHA for every build.
 - [Execution Environment](docs/execution-environment.md) — what is in the image and how to change it
 - [Windows host preparation](docs/windows-host-prep.md) — WinRM, transports, and what to use when
 - [Local development](docs/local-dev.md) — the dev harness and how to iterate
+- [Testing](docs/testing.md) — running the suites against a Windows VM
 
 ## Contributing
 

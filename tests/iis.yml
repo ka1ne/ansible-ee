@@ -1,0 +1,100 @@
+---
+# Exercise roles/iis_deploy against a real Windows host.
+#
+# Creates a uniquely-named site so it cannot collide with anything already on
+# the VM, checks the site is really there, and leaves it behind for the
+# idempotence re-run. tests/iis_cleanup.yml removes it afterwards.
+#
+#   make test-vm HOST=10.0.0.5 SUITE=iis
+
+- name: IIS deployment
+  hosts: windows
+  gather_facts: true
+
+  vars:
+    # run-tests.sh passes a run id so converge and cleanup agree on the name.
+    test_run_id: "{{ lookup('env', 'TEST_RUN_ID') | default('manual', true) }}"
+    test_site_name: "ansible-ee-test-{{ test_run_id }}"
+    test_site_port: "{{ lookup('env', 'TEST_IIS_PORT') | default(18080, true) | int }}"
+    test_site_root: 'C:\inetpub\wwwroot\{{ test_site_name }}'
+
+    iis_config:
+      site_name: "{{ test_site_name }}"
+      app_pool: "{{ test_site_name }}-pool"
+      dotnet_version: v4.0
+      bindings:
+        - protocol: http
+          port: "{{ test_site_port }}"
+
+  tasks:
+    # The role points the site at C:\inetpub\wwwroot\<name> but does not create
+    # it. IIS will not start a site whose physical path is missing, so the test
+    # creates it first. That the role does not do this itself is a real gap —
+    # see #13.
+    - name: Create the site root the role expects to exist
+      ansible.windows.win_file:
+        path: "{{ test_site_root }}"
+        state: directory
+
+    - name: Put something in it so a request has something to return
+      ansible.windows.win_copy:
+        dest: '{{ test_site_root }}\index.html'
+        content: "ansible-ee test site {{ test_run_id }}\n"
+
+    - name: Run the iis_deploy role
+      ansible.builtin.include_role:
+        name: iis_deploy
+
+    # ── Verify ────────────────────────────────────────────────────────────────
+
+    - name: Read back the site state from IIS
+      ansible.windows.win_shell: |
+        Import-Module WebAdministration
+        $site = Get-Website -Name '{{ test_site_name }}'
+        if (-not $site) { throw "site '{{ test_site_name }}' does not exist" }
+        $site.State
+      register: iis_site_state
+      changed_when: false
+
+    - name: The site must exist and be started
+      ansible.builtin.assert:
+        that:
+          - iis_site_state.stdout | trim == 'Started'
+        fail_msg: >-
+          Site '{{ test_site_name }}' is '{{ iis_site_state.stdout | trim }}',
+          expected 'Started'.
+        success_msg: "Site '{{ test_site_name }}' is started"
+
+    - name: Read back the application pool state
+      ansible.windows.win_shell: |
+        Import-Module WebAdministration
+        (Get-Item 'IIS:\AppPools\{{ test_site_name }}-pool').State
+      register: iis_pool_state
+      changed_when: false
+
+    - name: The application pool must be started
+      ansible.builtin.assert:
+        that:
+          - iis_pool_state.stdout | trim == 'Started'
+        fail_msg: >-
+          App pool '{{ test_site_name }}-pool' is
+          '{{ iis_pool_state.stdout | trim }}', expected 'Started'.
+        success_msg: "App pool is started"
+
+    - name: The site must actually serve the content we put there
+      ansible.windows.win_uri:
+        url: "http://localhost:{{ test_site_port }}/index.html"
+        return_content: true
+        status_code: 200
+      register: iis_response
+      changed_when: false
+      retries: 5
+      delay: 3
+      until: iis_response is succeeded
+
+    - name: The response body must be ours
+      ansible.builtin.assert:
+        that:
+          - test_run_id in iis_response.content
+        fail_msg: "The site responded, but not with the content we deployed."
+        success_msg: "Site served the expected content over HTTP"
