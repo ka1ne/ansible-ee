@@ -1,0 +1,46 @@
+---
+# roles/sqlserver_deploy/tasks/prerequisites.yml
+# Ensures SqlServerDsc DSC resource module and dbatools are present on the target.
+
+- name: Ensure NuGet package provider is available
+  ansible.windows.win_shell: |
+    if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Confirm:$false
+    }
+    Write-Output "NuGet ready"
+  changed_when: "'Installing' in prereq_nuget.stdout"
+  register: prereq_nuget
+  when: sqlserver_nuget_provider | bool
+
+- name: Configure PS repository
+  ansible.windows.win_shell: |
+    $repo = '{{ sqlserver_psrepository }}'
+    $existing = Get-PSRepository -Name $repo -ErrorAction SilentlyContinue
+    if (-not $existing) {
+      {% if sqlserver_psrepository_url %}
+        Register-PSRepository -Name $repo -SourceLocation '{{ sqlserver_psrepository_url }}' `
+            -InstallationPolicy Trusted
+        Write-Output "Registered repository '$repo'"
+      {% else %}
+        throw "Repository '$repo' not found and no URL configured"
+      {% endif %}
+    } elseif ($existing.InstallationPolicy -ne 'Trusted') {
+        Set-PSRepository -Name $repo -InstallationPolicy Trusted
+        Write-Output "Set repository '$repo' to Trusted"
+    } else {
+        Write-Output "OK"
+    }
+  changed_when: "'OK' not in prereq_repo.stdout"
+  register: prereq_repo
+
+- name: Ensure SqlServerDsc module is installed
+  community.windows.win_psmodule:
+    name: SqlServerDsc
+    repository: "{{ sqlserver_psrepository }}"
+    state: present
+
+- name: Ensure dbatools module is installed
+  community.windows.win_psmodule:
+    name: dbatools
+    repository: "{{ sqlserver_psrepository }}"
+    state: present

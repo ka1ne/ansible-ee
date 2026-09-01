@@ -1,0 +1,80 @@
+---
+# roles/sqlserver_deploy/molecule/mssql/molecule.yml
+#
+# Delegated driver — targets an EXISTING Windows Server 2019 + SQL Server host.
+# The host is never created/destroyed by Molecule; cleanup.yml resets test state.
+#
+# Required env vars:
+#   MOLECULE_TEST_HOST      — FQDN or IP of the SQL Server 2019 target
+#   ANSIBLE_WINRM_USER      — local admin account on the target
+#   ANSIBLE_WINRM_PASSWORD  — password for that account
+#
+# Optional:
+#   MOLECULE_PSREPOSITORY_URL — internal NuGet/PSGallery mirror URL
+#                               (leave unset to use public PSGallery)
+
+dependency:
+  name: galaxy
+  options:
+    requirements-file: "${MOLECULE_PROJECT_DIRECTORY}/../../../../requirements.yml"
+
+driver:
+  name: default
+  options:
+    managed: false          # Molecule will not try to create/destroy the instance
+    login_cmd_template: >
+      ansible -i {instance} all
+      -m ansible.windows.win_shell -a "hostname"
+      -e "ansible_connection=winrm"
+
+platforms:
+  - name: win-sql-2019
+    groups:
+      - windows
+      - sqlserver
+
+provisioner:
+  name: ansible
+  config_options:
+    defaults:
+      gathering: smart
+      fact_caching: jsonfile
+      fact_caching_connection: /tmp/molecule_facts
+      fact_caching_timeout: 300
+      forks: 5
+  connection_options:
+    ansible_connection: winrm
+    ansible_winrm_transport: credssp
+    ansible_winrm_server_cert_validation: ignore
+    ansible_port: 5986
+    ansible_host: "${MOLECULE_TEST_HOST}"
+    ansible_user: "${ANSIBLE_WINRM_USER}"
+    ansible_password: "${ANSIBLE_WINRM_PASSWORD}"
+  inventory:
+    hosts:
+      all:
+        hosts:
+          win-sql-2019:
+            ansible_host: "${MOLECULE_TEST_HOST}"
+            ansible_user: "${ANSIBLE_WINRM_USER}"
+            ansible_password: "${ANSIBLE_WINRM_PASSWORD}"
+            ansible_connection: winrm
+            ansible_winrm_transport: credssp
+            ansible_winrm_server_cert_validation: ignore
+            ansible_port: 5986
+  env:
+    # Suppress CredSSP "public network" warnings from pywinrm
+    PYTHONWARNINGS: "ignore"
+
+verifier:
+  name: ansible
+
+scenario:
+  name: mssql
+  test_sequence:
+    - dependency
+    - prepare
+    - converge
+    - idempotency
+    - verify
+    - cleanup

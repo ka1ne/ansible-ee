@@ -1,98 +1,113 @@
-# Ansible EE — Tekton PoC
+# Ansible Execution Environment
 
-Builds and runs an Ansible Execution Environment (EE) image through a Tekton pipeline.
-Proves the full cycle: **build EE image → push to registry → run WinRM + SQL Server probe**.
+Containerised Ansible control node for application deployment and migration.
 
-## What it proves
+## Structure
 
-At the end of a successful PipelineRun the logs confirm:
-
-| Check | What it validates |
-|---|---|
-| WinRM ping | EE container can reach the Windows host |
-| Host facts | OS hostname + version gathered |
-| TCP 1433 | Windows host can reach SQL Server on port 1433 |
-| SQL login | `SELECT @@VERSION` via `sqlcmd` (skipped if `sqlcmd` not on host) |
-
-## Prerequisites
-
-- OpenShift cluster with **OpenShift Pipelines** (Tekton) installed
-- Windows host with WinRM enabled on port 5985 (NTLM/HTTP — PoC only)
-- SQL Server accessible on port 1433 from the Windows host
-- Container registry accessible from the cluster
-
-## One-time setup
-
-### 1. Enable WinRM on the Windows host
-
-Run as Administrator on the Windows host:
-
-```powershell
-Set-ExecutionPolicy RemoteSigned -Scope Process -Force
-.\poc\scripts\setup-winrm-local.ps1
+```
+├── execution-environment.yml   # EE build definition (ansible-builder)
+├── requirements.yml            # Galaxy collections (pinned, internal mirror)
+├── requirements.txt            # Python dependencies (pinned)
+├── bindep.txt                  # System packages
+├── ansible.cfg                 # Hardened Ansible config
+├── Makefile                    # Build/scan/test commands
+│
+├── playbooks/
+│   └── site.yml                # Main entrypoint — manifest-driven role dispatch
+│
+├── roles/                      # Internal roles (or pulled via collections)
+│
+├── inventory/
+│   ├── dev.yml
+│   ├── staging.yml
+│   └── prod.yml
+│
+├── group_vars/
+│   └── windows.yml             # WinRM connection vars (creds from env)
+│
+├── schemas/
+│   └── manifest-schema.json    # JSON Schema for manifest validation
+│
+├── scripts/
+│   ├── scan-collections.sh     # Security scan for Galaxy collection contents
+│   └── validate-manifest.py    # Manifest schema validation
+│
+└── examples/
+    └── manifest-example.yml    # Sample manifest (React app output)
 ```
 
-### 2. Create the credentials secret
+## Getting Started
+
+### Prerequisites
+
+| Tool | Min version |
+|------|-------------|
+| Python | 3.11 |
+| Podman | 4.x |
+| Git | any |
+
+### First-time setup
 
 ```bash
-kubectl create secret generic winrm-credentials \
-  --from-literal=host=<windows-host-ip> \
-  --from-literal=username=ansible-poc \
-  --from-literal=password=<winrm-password> \
-  --from-literal=mssql_host=<mssql-host-ip> \
-  --from-literal=mssql_sa_password=<sa-password> \
-  -n <your-namespace>
+cp .env.example .env
+$EDITOR .env          # set IMAGE_NAME at minimum; add mirror vars for air-gapped CI
+
+make bootstrap        # verify prereqs + create .venv
+make test-bootstrap   # confirm all tools importable
 ```
 
-### 3. Apply Tekton manifests
+### Common tasks
 
 ```bash
-# Edit tekton/pipelinerun.yml — set GIT_URL and IMAGE first
-make tekton-apply NAMESPACE=<your-namespace>
+make build              # Build the EE image
+make lint               # ansible-lint + yamllint
+make test-syntax        # Playbook syntax check
+make scan               # Trivy + collection security scan
+make test-dry-run       # --check --diff against dev inventory
+make push               # Tag and push to registry
+
+# Molecule — smoke test (Windows Server 2019 via Podman/KVM)
+make test-molecule-init
+
+# Molecule — full SQL Server role test (requires a live host)
+MOLECULE_TEST_HOST=<host> ANSIBLE_WINRM_USER=<u> ANSIBLE_WINRM_PASSWORD=<p> \
+  make test-molecule-mssql
+
+make help               # List all targets
 ```
 
-## Run the pipeline
+## AWX (local dev)
+
+AWX runs on k3s via the AWX Operator (`awx/awx-instance.yml`).
 
 ```bash
-make tekton-run NAMESPACE=<your-namespace>
+make awx-operator   # install operator
+make awx-install    # deploy AWX (~5 min)
+make awx-status     # get pod status + admin password
+# create an API token: Settings → Users → admin → Tokens → Add → set AWX_TOKEN=<token> in .env
+make awx-sync-ee    # register/update the EE definition
 ```
 
-Watch the run:
+The Harness `ee-build` pipeline runs `awx/register-ee.sh` automatically after every successful build.
+
+## Pipeline Usage
+
+The EE image is consumed as a Container Step in Harness pipelines.
+The React manifest generator produces a YAML file which is passed as `--extra-vars`
+to `ansible-playbook`. See `examples/manifest-example.yml` for the expected format.
 
 ```bash
-kubectl get pipelineruns -n <your-namespace> -w
-tkn pipelinerun logs -f -n <your-namespace>
+ansible-playbook playbooks/site.yml \
+  -i inventory/dev.yml \
+  -e @manifest.yml \
+  --limit "dev-win-01.ka1ne.dev"
 ```
 
-## Run locally (without Tekton)
+## Security
 
-Requires Podman Desktop + WSL2. Copy and fill in `poc/.env.example`:
-
-```bash
-cp poc/.env.example poc/.env
-make poc-local
-```
-
-## Repo structure
-
-```
-.
-├── Dockerfile              # EE image — runtime only (no playbooks baked in)
-├── requirements.txt        # Python: pywinrm, requests-ntlm, jmespath
-├── requirements.yml        # Ansible: ansible.windows collection only
-├── ansible.cfg             # Minimal config
-├── Makefile                # build / poc-local / tekton-apply / tekton-run / clean
-├── tekton/
-│   ├── task-git-clone.yml  # Clone source repo into workspace
-│   ├── task-build-ee.yml   # Build + push EE image (buildah)
-│   ├── task-run-poc.yml    # Run winrm-poc.yml inside the EE
-│   ├── pipeline.yml        # Pipeline: clone → build → run
-│   └── pipelinerun.yml     # Sample trigger (edit GIT_URL + IMAGE before applying)
-└── poc/
-    ├── .env.example
-    ├── inventory/poc-local.yml   # WINRM_HOST from env, falls back to host.containers.internal
-    ├── playbooks/winrm-poc.yml   # 5-stage probe: ping, facts, port check, SQL login, summary
-    └── scripts/
-        ├── run-poc.sh            # Local orchestration (Podman + MSSQL + EE)
-        └── setup-winrm-local.ps1 # One-time WinRM enablement (run as Administrator)
-```
+- All Galaxy collections pulled from internal mirror only (no public egress)
+- Python + system deps pinned to exact versions
+- EE image scanned with Trivy, SBOM generated with Syft
+- Collection Python code scanned with Bandit + Semgrep
+- Image runs as non-root (UID 1000)
+- Credentials injected at runtime via environment variables, never baked into image

@@ -13,6 +13,7 @@ sbom-*.json
 ansible_facts/
 
 # Secrets — never commit
+.env
 *.pem
 *.key
 vault-password.txt

@@ -1,0 +1,13 @@
+---
+- name: Converge — WinRM ping via EE
+  hosts: all
+  gather_facts: false
+
+  tasks:
+    - name: Ping Windows host
+      ansible.windows.win_ping:
+      register: ping_result
+
+    - name: Show ping result
+      ansible.builtin.debug:
+        var: ping_result

@@ -1,0 +1,66 @@
+---
+# roles/sqlserver_deploy/molecule/init/molecule.yml
+#
+# Smoke-test scenario: spins up Windows Server 2019 inside a Podman container
+# (dockur/windows via KVM/QEMU), then runs a win_ping through the Ansible EE
+# container to prove the full EE→WinRM path works end-to-end.
+#
+# Self-contained — no external Windows host needed.  Runs on any Linux host
+# (including CI) that has /dev/kvm access.
+#
+# Prerequisites:
+#   - Podman installed, /dev/kvm accessible (check: ls /dev/kvm)
+#   - EE image built (make build) or pulled
+#
+# Required env var:
+#   EE_IMAGE        — EE image to test (default: ghcr.io/ka1ne/ansible-ee:latest)
+#
+# Optional:
+#   EE_PULL_POLICY  — missing (default) | always | never
+#   WIN_IMAGE       — override the Windows container image
+#                     (default: dockur/windows — mirror to a private registry before use in CI)
+#   WIN_PASSWORD    — WinRM password set on the Windows container (default: Molecule1!)
+
+dependency:
+  name: galaxy
+  options:
+    requirements-file: "${MOLECULE_PROJECT_DIRECTORY}/../../requirements.yml"
+
+driver:
+  name: default
+
+platforms:
+  - name: win-2019-init
+    groups:
+      - windows
+
+provisioner:
+  name: ansible
+  # ee-runner.sh rewrites ansible-playbook calls to ansible-navigator run
+  # so every playbook executes inside the EE container.
+  executable: "${MOLECULE_SCENARIO_DIRECTORY}/ee-runner.sh"
+  env:
+    EE_IMAGE: "${EE_IMAGE:-ghcr.io/ka1ne/ansible-ee:latest}"
+    EE_PULL_POLICY: "${EE_PULL_POLICY:-missing}"
+    ANSIBLE_NAVIGATOR_CONFIG_FILE: "${MOLECULE_PROJECT_DIRECTORY}/../../ansible-navigator.yml"
+  connection_options:
+    # dockur/windows runs winrm quickconfig + enables basic auth on first boot
+    ansible_connection: winrm
+    ansible_winrm_transport: basic
+    ansible_winrm_server_cert_validation: ignore
+    ansible_port: 5985
+    ansible_host: "127.0.0.1"
+    ansible_user: Administrator
+    ansible_password: "${WIN_PASSWORD:-Molecule1!}"
+
+verifier:
+  name: ansible
+
+scenario:
+  name: init
+  test_sequence:
+    - dependency
+    - create
+    - converge
+    - verify
+    - destroy

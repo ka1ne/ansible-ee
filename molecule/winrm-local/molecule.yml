@@ -1,0 +1,61 @@
+---
+# molecule/winrm-local/molecule.yml
+#
+# WSL2 dev scenario: targets the Windows host directly over WinRM (no VM/container
+# spin-up).  Runs win_ping through the EE image to confirm the full EE→WinRM path.
+#
+# Prerequisites on the Windows host (run once as admin in PowerShell):
+#   winrm quickconfig -quiet
+#   winrm set winrm/config/service/auth '@{Basic="true"}'
+#   winrm set winrm/config/service '@{AllowUnencrypted="true"}'
+#
+# Required env vars:
+#   WIN_HOST      — IP or hostname of the Windows target
+#                   (WSL2 default: $(cat /etc/resolv.conf | grep nameserver | awk '{print $2}'))
+#   WIN_USER      — local admin account (default: Administrator)
+#   WIN_PASSWORD  — password for that account
+#
+# Optional:
+#   EE_IMAGE       — EE image to test (default: ghcr.io/ka1ne/ansible-ee:latest)
+#   EE_PULL_POLICY — missing (default) | always | never
+
+dependency:
+  name: galaxy
+  options:
+    requirements-file: "${MOLECULE_PROJECT_DIRECTORY}/requirements.yml"
+
+driver:
+  name: default
+  options:
+    managed: false
+
+platforms:
+  - name: win-local
+    groups:
+      - windows
+
+provisioner:
+  name: ansible
+  executable: "${MOLECULE_SCENARIO_DIRECTORY}/ee-runner.sh"
+  env:
+    EE_IMAGE: "${EE_IMAGE:-ghcr.io/ka1ne/ansible-ee:latest}"
+    EE_PULL_POLICY: "${EE_PULL_POLICY:-missing}"
+    ANSIBLE_NAVIGATOR_CONFIG_FILE: "${MOLECULE_PROJECT_DIRECTORY}/ansible-navigator.yml"
+  connection_options:
+    ansible_connection: winrm
+    ansible_winrm_transport: basic
+    ansible_winrm_server_cert_validation: ignore
+    ansible_port: 5985
+    ansible_host: "${WIN_HOST}"
+    ansible_user: "${WIN_USER:-Administrator}"
+    ansible_password: "${WIN_PASSWORD}"
+
+verifier:
+  name: ansible
+
+scenario:
+  name: winrm-local
+  test_sequence:
+    - dependency
+    - converge
+    - verify

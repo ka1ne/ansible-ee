@@ -1,0 +1,18 @@
+---
+- name: Verify — assert WinRM connectivity
+  hosts: all
+  gather_facts: false
+
+  tasks:
+    - name: Ping Windows host
+      ansible.windows.win_ping:
+      register: ping_result
+
+    - name: Assert pong
+      ansible.builtin.assert:
+        that:
+          - ping_result.ping == 'pong'
+        fail_msg: >-
+          win_ping did not return 'pong' (got '{{ ping_result.ping | default("no response") }}').
+          Check WinRM is configured on the Windows host and WIN_HOST/WIN_PASSWORD are correct.
+        success_msg: "WinRM confirmed via EE: {{ ping_result.ping }}"
