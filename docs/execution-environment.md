@@ -58,9 +58,17 @@ until the first green CI build reports what actually resolves, at which point
 they should be pinned too — tracked in
 [#2](https://github.com/ka1ne/ansible-ee/issues/2).
 
-`ansible-core` is bounded rather than pinned (`>=2.15,<2.21`) so security
+`ansible-core` is bounded rather than pinned (`>=2.17,<2.21`) so security
 updates land without a code change, while a major version cannot arrive by
 surprise.
+
+The floor is 2.17 for a reason worth knowing about. UBI9's default `python3`
+is 3.9, and ansible-core past 2.15 needs Python 3.10 or newer on the
+controller. Left to itself, pip quietly resolves to ansible-core 2.15 — which
+is end-of-life — and the build still succeeds. The definition therefore pins
+the interpreter to `python3.11` via `python_interpreter`, and CI prints
+`ansible --version` on every run so a regression like that cannot pass
+unnoticed again.
 
 ## Changing the image
 
